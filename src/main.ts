@@ -7,6 +7,7 @@ import type { UpdateFn, World } from './core/world';
 import { createBottles } from './bottles';
 import { createShooting } from './shooting';
 import { createHud } from './ui/hud';
+import { createFracture } from './fracture';
 
 const MAX_PIXEL_RATIO = 1.5;
 
@@ -49,7 +50,15 @@ async function boot() {
   const bottles = createBottles(world);
   const shooting = createShooting(world, bottles);
   const ui = createHud(shooting, bottles);
-  Object.assign(window, { world, post, bottles, shooting, ui });
+  const fracture = createFracture(world, bottles);
+  shooting.autoRemove = false;
+  shooting.onHit((bottle, point, normal, dir) => fracture.shatter(bottle, point, normal, dir));
+  const resetAll = bottles.resetAll;
+  bottles.resetAll = () => {
+    fracture.clearShards();
+    resetAll();
+  };
+  Object.assign(window, { world, post, bottles, shooting, ui, fracture });
 
   const resize = () => {
     renderer.setPixelRatio(Math.min(devicePixelRatio, MAX_PIXEL_RATIO));
