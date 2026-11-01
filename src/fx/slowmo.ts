@@ -48,6 +48,8 @@ export function createSlowmo(world: World, post: Post | null) {
   let z2 = 0;
   const off = { yaw: 0, pitch: 0 }; // smoothed aim offset toward the bottle
   const offT = { yaw: 0, pitch: 0 };
+  /** The part of the offset currently baked into the camera rotation (via rig.kick). */
+  const applied = { yaw: 0, pitch: 0 };
   const d = new Vector3();
   const zoomOf = () => (globalThis as { shooting?: { zoom?: number } }).shooting?.zoom ?? 0;
 
@@ -110,6 +112,8 @@ export function createSlowmo(world: World, post: Post | null) {
     lastBreak = -1e9;
     z1 = z2 = 0;
     off.yaw = off.pitch = offT.yaw = offT.pitch = 0;
+    applied.yaw = applied.pitch = 0;
+    dipUntil = -1;
     world.time.scale = 1;
     apply();
   }
@@ -143,13 +147,16 @@ export function createSlowmo(world: World, post: Post | null) {
     const ko = 1 - Math.exp(-dt * 10);
     off.yaw += (offT.yaw - off.yaw) * ko;
     off.pitch += (offT.pitch - off.pitch) * ko;
+    applied.yaw = applied.pitch = 0;
     if (z2 > 1e-4) {
+      applied.yaw = off.yaw * z2;
+      applied.pitch = off.pitch * z2;
       const zf = SLOWMO.zoomFov / rig.baseFov;
       const f = zf + (SLOWMO.zoomedPunch - zf) * Math.min(1, zoomOf());
       camera.fov *= 1 - (1 - Math.min(1, f)) * z2;
       // aim offset rides on the additive kick (rewritten by the shooting spring each frame)
-      rig.kick.yaw += off.yaw * z2;
-      rig.kick.pitch += off.pitch * z2;
+      rig.kick.yaw += applied.yaw;
+      rig.kick.pitch += applied.pitch;
       camera.updateProjectionMatrix();
     }
     const deg = (SLOWMO.fovPunch - SLOWMO.fovHold) * pk * punchGain + SLOWMO.fovHold * smoother(Math.min(1, amount * 1.4));
@@ -167,6 +174,10 @@ export function createSlowmo(world: World, post: Post | null) {
       return active;
     },
     /** Breaks so far in the current chain (0 = first). */
+    /** Cinematic view turn (rad) currently in the camera; shots and the crosshair exclude it. */
+    get aimOffset() {
+      return applied;
+    },
     get chain() {
       return chain;
     },

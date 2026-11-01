@@ -1,4 +1,4 @@
-import { MathUtils, Object3D, Raycaster, Vector2, Vector3, type Intersection } from 'three';
+import { Euler, MathUtils, Object3D, Raycaster, Vector2, Vector3, type Intersection } from 'three';
 import type { World } from '../core/world';
 import type { Bottle, BottleSystem } from '../bottles';
 import { createImpacts } from './impacts';
@@ -21,6 +21,8 @@ const C = 2 * 0.45 * Math.sqrt(K);
 const JOLT_TIME = 0.015;
 const SHAKE_TIME = 0.12;
 
+const NO_OFFSET = { yaw: 0, pitch: 0 };
+
 const LOCK_SUPPORTED = 'pointerLockElement' in document && 'requestPointerLock' in HTMLElement.prototype;
 
 /**
@@ -35,6 +37,8 @@ export function createShooting(world: World, bottles: BottleSystem) {
   const ray = new Raycaster();
   ray.far = MAX_RANGE;
   const center = new Vector2(0, 0);
+  const aimEuler = new Euler(0, 0, 0, 'YXZ');
+  const tmpP = new Vector3();
 
   const hitFns: HitFn[] = [];
   const missFns: MissFn[] = [];
@@ -75,6 +79,23 @@ export function createShooting(world: World, bottles: BottleSystem) {
     },
     get zoom() {
       return zoomT;
+    },
+    /** Camera rotation that is presentation only (slow-mo punch-in turn), not player aim. */
+    viewOffset: () => NO_OFFSET as { yaw: number; pitch: number },
+    /** Player's real aim direction (world), excluding `viewOffset`. */
+    aimDir(out: Vector3) {
+      const o = api.viewOffset();
+      const r = camera.rotation;
+      aimEuler.set(r.x - o.pitch, r.y - o.yaw, r.z, 'YXZ');
+      return out.set(0, 0, -1).applyEuler(aimEuler);
+    },
+    /** Where the real aim lands on screen (NDC); off-center only while the punch-in turns the view. */
+    aimNdc(out: Vector2) {
+      const o = api.viewOffset();
+      if (o.yaw === 0 && o.pitch === 0) return out.set(0, 0);
+      camera.updateMatrixWorld();
+      api.aimDir(tmpP).multiplyScalar(10).add(camera.position).project(camera);
+      return out.set(tmpP.x, tmpP.y);
     },
     onHit(fn: HitFn) {
       hitFns.push(fn);
@@ -129,12 +150,16 @@ export function createShooting(world: World, bottles: BottleSystem) {
 
       camera.updateMatrixWorld();
       ray.setFromCamera(center, camera);
+      api.aimDir(ray.ray.direction);
       const origin = ray.ray.origin.clone();
       const dir = ray.ray.direction.clone();
       kick();
       for (const fn of fireFns) fn(origin, dir);
 
-      const bHits = ray.intersectObjects(bottles.raycastTargets(), false);
+      const targets = bottles.raycastTargets();
+      // caps sit above the glass hit proxy; a shot through the cap should still break the bottle
+      for (const b of bottles.bottles) if (b.alive && b.meshes.cap) targets.push(b.meshes.cap);
+      const bHits = ray.intersectObjects(targets, false);
       const envTargets: Object3D[] = [];
       for (const name of ['fence', 'ground']) {
         const o = scene.getObjectByName(name);

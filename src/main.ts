@@ -58,6 +58,7 @@ async function boot() {
   shooting.autoRemove = false;
   shooting.onHit((bottle, point, normal, dir) => fracture.shatter(bottle, point, normal, dir));
   const slowmo = createSlowmo(world, post);
+  shooting.viewOffset = () => slowmo.aimOffset;
   const audio = createAudio(world, () => slowmo.amount);
   const liquid = createLiquid(world);
   wireFeel({ world, shooting, fracture, slowmo, audio, liquid });

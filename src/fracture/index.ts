@@ -434,11 +434,11 @@ export function createFracture(world: World, bottles: BottleSystem) {
       t.owner = br;
       t.piece = piece;
       t.order = orderCounter++;
-      const g = new BufferGeometry();
+      // reuse the slot geometry: a fresh one per piece would never be disposed
+      const g = t.mesh.geometry;
       for (const name of ['position', 'normal', 'sid', 'edge', 'luv']) g.setAttribute(name, br.geo!.getAttribute(name));
       g.setIndex(br.geo!.getIndex());
       g.setDrawRange(meta[piece * META + 6], meta[piece * META + 7]);
-      t.mesh.geometry = g;
       t.uni.uShardTex.value = br.tex;
       t.uni.uLabelA.value = br.uni.uLabelA.value;
       t.uni.uLabelB.value = br.uni.uLabelB.value;
@@ -448,6 +448,7 @@ export function createFracture(world: World, bottles: BottleSystem) {
       tm.attenuationColor.copy(b.tint);
       tm.attenuationDistance = ATTEN[b.type];
       t.mesh.visible = true;
+      t.mesh.userData.tBounds = { p: br.p, rad: br.rad, i: piece };
       br.data[piece * 8 + 3] = -1;
     }
     // cap rides on the neck

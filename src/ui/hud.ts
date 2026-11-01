@@ -1,9 +1,10 @@
+import { Vector2 } from 'three';
 import type { Shooting } from '../shooting';
 import type { BottleSystem } from '../bottles';
 
 const CSS = `
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 20;
-  font: 500 11px/1.2 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font: 500 12px/1.2 ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   color: rgba(244,238,226,0.88); letter-spacing: 0.14em; text-transform: uppercase;
   text-shadow: 0 1px 2px rgba(0,0,0,0.5); user-select: none; }
 #hud .vig { position: absolute; inset: 0; opacity: 0;
@@ -15,8 +16,8 @@ const CSS = `
 #hud .xh .l { left: -8px; } #hud .xh .r { left: 3px; }
 #hud .xh .t { top: -8px; } #hud .xh .b { top: 3px; }
 #hud .xh.hit i { background: rgba(255,214,150,1); }
-#hud .stats { position: absolute; right: 22px; top: 18px; display: flex; gap: 14px; align-items: center; }
-#hud .score { font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.06em; font-size: 13px; color: rgba(255,250,240,0.95); }
+#hud .stats { position: absolute; z-index: 2; right: 22px; top: 18px; display: flex; gap: 14px; align-items: center; }
+#hud .score { font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.06em; font-size: 16px; color: rgba(255,250,240,0.95); }
 #hud button { pointer-events: auto; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit;
   background: none; border: 1px solid rgba(244,238,226,0.35); border-radius: 2px; padding: 3px 8px; cursor: pointer; }
 #hud button:hover { border-color: rgba(244,238,226,0.75); }
@@ -88,7 +89,15 @@ export function createHud(shooting: Shooting, bottles: BottleSystem) {
   });
 
   let lastZ = -1;
+  let lastX = '';
+  const ndc = new Vector2();
   const tick = () => {
+    shooting.aimNdc(ndc);
+    const tr = ndc.x === 0 && ndc.y === 0 ? '' : `translate(${((ndc.x * innerWidth) / 2).toFixed(1)}px,${((-ndc.y * innerHeight) / 2).toFixed(1)}px)`;
+    if (tr !== lastX) {
+      xh.style.transform = tr;
+      lastX = tr;
+    }
     const z = shooting.zoom;
     if (z !== lastZ) {
       vig.style.opacity = String(z);
