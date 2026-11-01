@@ -32,31 +32,31 @@ interface TypeLook {
 
 const LOOK: Record<BottleType, TypeLook> = {
   beer: {
-    glass: ['#1e6b2c', 0.012],
+    glass: ['#1e6b2c', 0.02],
     liquid: ['#d89a2a', 0.04],
     liquidGlow: '#ff9a2a',
     surface: '#d8c49a',
     foam: 1,
-    cap: { color: '#c9a24a', metal: 0.9, rough: 0.32, kind: 'crown' },
-    caustic: '#7dff62',
+    cap: { color: '#c9a24a', metal: 1, rough: 0.3, kind: 'crown' },
+    caustic: '#4f9a3e',
   },
   soda: {
-    glass: ['#eaf6ee', 0.03],
+    glass: ['#d8f0e0', 0.08],
     liquid: ['#4a1404', 0.012],
     liquidGlow: '#a02a08',
     surface: '#1a0703',
     foam: 0,
-    cap: { color: '#b3221a', metal: 0.55, rough: 0.35, kind: 'crown' },
-    caustic: '#fffbe8',
+    cap: { color: '#b3221a', metal: 0.7, rough: 0.3, kind: 'crown' },
+    caustic: '#d4ddd6',
   },
   whiskey: {
-    glass: ['#5a2a06', 0.03],
+    glass: ['#5a2a06', 0.035],
     liquid: ['#c8741e', 0.05],
     liquidGlow: '#ff8a1e',
     surface: '#5a2a0a',
     foam: 0,
     cap: { color: '#151413', metal: 0.2, rough: 0.55, kind: 'screw' },
-    caustic: '#ff9a3a',
+    caustic: '#a0521c',
   },
 };
 
@@ -110,7 +110,7 @@ function makeCap(kind: 'crown' | 'screw', topY: number) {
       if (r < 0.013) continue;
       const th = Math.atan2(x, z);
       const skirt = Math.min(1, Math.max(0, (0.0032 - y) / 0.005));
-      const k = 1 + 0.06 * Math.pow(Math.max(0, Math.cos(th * 21)), 2) * skirt;
+      const k = 1 + 0.09 * (0.5 + 0.5 * Math.cos(th * 21)) * skirt;
       p.setXYZ(i, x * k, y, z * k);
     }
     g.computeVertexNormals();
@@ -145,7 +145,7 @@ function labelBand(profile: BottleProfile, y0: number, y1: number, theta0: numbe
 /** Builds the 8 rail bottles. Glass is the only transmissive part (8 meshes total). */
 export function createBottles(world: World) {
   const { scene, renderer } = world;
-  renderer.transmissionResolutionScale = 0.75;
+  renderer.transmissionResolutionScale = 1;
   const markers = scene.getObjectByName('bottleSlotMarkers');
   if (markers) markers.visible = false;
 
@@ -212,7 +212,8 @@ export function createBottles(world: World) {
     const basePos = slot.clone().add(new Vector3((r() - 0.5) * 0.03, 0.0004, (r() - 0.5) * 0.02));
     const baseRotY = (r() - 0.5) * 0.6;
     group.position.copy(basePos);
-    group.rotation.y = baseRotY;
+    const tiltX = (r() - 0.5) * 0.05, tiltZ = (r() - 0.5) * 0.05;
+    group.rotation.set(tiltX, baseRotY, tiltZ, 'YXZ');
 
     const tint = new Color(look.glass[0]);
     const liquidColor = new Color(look.liquid[0]);
@@ -220,6 +221,7 @@ export function createBottles(world: World) {
       uFillY: { value: -1 },
       uBaseY: { value: basePos.y },
       uBaseTop: { value: pr.floorY },
+      uTopY: { value: pr.height },
       uInnerR: { value: pr.innerR(0.06) },
       uWall: { value: 0.003 },
       uSigmaGlass: { value: sigmaFrom(new Color(look.glass[0]), look.glass[1]) },
@@ -338,7 +340,7 @@ export function createBottles(world: World) {
         group.visible = true;
         caustic.visible = true;
         group.position.copy(basePos);
-        group.rotation.set(0, baseRotY, 0);
+        group.rotation.set(tiltX, baseRotY, tiltZ, 'YXZ');
         bottle.setFill(spec.fill);
       },
     };

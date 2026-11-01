@@ -144,7 +144,7 @@ export function buildProfile(type: BottleType): BottleProfile {
 
 /** Superellipse radius factor (n=5): 1 on the flats, ~1.15 at the corners. */
 function squareK(theta: number) {
-  const n = 5;
+  const n = 10;
   const c = Math.abs(Math.cos(theta)), s = Math.abs(Math.sin(theta));
   return 1 / Math.pow(Math.pow(c, n) + Math.pow(s, n), 1 / n);
 }

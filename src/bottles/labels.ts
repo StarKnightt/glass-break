@@ -33,6 +33,22 @@ function paper(ctx: CanvasRenderingContext2D, w: number, h: number, base: string
   e.addColorStop(1, 'rgba(90,60,25,0.4)');
   ctx.fillStyle = e;
   ctx.fillRect(0, 0, w, h);
+  // glue seams at the wrap ends + overall grime toward the bottom edge
+  const gl = ctx.createLinearGradient(0, 0, w, 0);
+  gl.addColorStop(0, 'rgba(70,45,15,0.45)');
+  gl.addColorStop(0.012, 'rgba(70,45,15,0.12)');
+  gl.addColorStop(0.03, 'rgba(70,45,15,0)');
+  gl.addColorStop(0.97, 'rgba(70,45,15,0)');
+  gl.addColorStop(0.988, 'rgba(70,45,15,0.12)');
+  gl.addColorStop(1, 'rgba(70,45,15,0.45)');
+  ctx.fillStyle = gl;
+  ctx.fillRect(0, 0, w, h);
+  const gr = ctx.createLinearGradient(0, 0, 0, h);
+  gr.addColorStop(0, 'rgba(60,45,25,0)');
+  gr.addColorStop(0.7, 'rgba(60,45,25,0.04)');
+  gr.addColorStop(1, 'rgba(60,45,25,0.16)');
+  ctx.fillStyle = gr;
+  ctx.fillRect(0, 0, w, h);
 }
 
 function scuffs(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number) {
@@ -65,7 +81,7 @@ function make(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void,
 export function createLabelTextures(renderer: WebGLRenderer) {
   const W = 1024, H = 400;
   const beer = make(W, H, (c) => {
-    paper(c, W, H, '#e9dcb8', 11);
+    paper(c, W, H, '#e2d2ad', 11);
     c.fillStyle = '#7a1a14';
     c.fillRect(0, 26, W, 16);
     c.fillRect(0, H - 42, W, 16);
@@ -95,12 +111,13 @@ export function createLabelTextures(renderer: WebGLRenderer) {
     paper(c, W, H, '#c8352a', 21);
     c.fillStyle = '#f3e7cf';
     c.textAlign = 'center';
-    for (const x of [W * 0.25, W * 0.75]) {
-      c.font = 'italic 700 112px "Brush Script MT", "Segoe Script", cursive';
-      c.fillText('Fizzwell', x, 210);
-      c.font = '700 40px Arial, sans-serif';
-      c.fillText('CHERRY COLA', x, 272);
-    }
+    c.font = 'italic 700 84px "Brush Script MT", "Segoe Script", cursive';
+    c.fillText('Fizzwell', W / 2, 210);
+    c.font = '700 38px Arial, sans-serif';
+    c.fillText('CHERRY COLA', W / 2, 270);
+    c.font = '700 28px Arial, sans-serif';
+    c.fillText('ICE COLD · 6½ FL OZ', W * 0.1, 220);
+    c.fillText('SINCE 1923', W * 0.9, 220);
     c.fillStyle = 'rgba(243,231,207,0.9)';
     c.fillRect(0, 30, W, 8);
     c.fillRect(0, H - 38, W, 8);
@@ -111,9 +128,9 @@ export function createLabelTextures(renderer: WebGLRenderer) {
     paper(c, W, h, '#efe6cf', 31);
     c.fillStyle = '#141210';
     c.fillRect(0, 0, W, h);
-    paper(c, W, h, '#e8dcbc', 32);
+    paper(c, W, h, '#e0d0aa', 32);
     c.globalCompositeOperation = 'multiply';
-    c.fillStyle = '#efe4c4';
+    c.fillStyle = '#e6d6b2';
     c.fillRect(0, 0, W, h);
     c.globalCompositeOperation = 'source-over';
     c.strokeStyle = '#1b1712';

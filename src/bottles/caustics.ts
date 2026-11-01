@@ -1,4 +1,4 @@
-import { AdditiveBlending, CanvasTexture, Color, Mesh, MeshBasicMaterial, PlaneGeometry, ShaderMaterial, Vector3 } from 'three';
+import { CustomBlending, ZeroFactor, SrcColorFactor, CanvasTexture, Color, Mesh, MeshBasicMaterial, PlaneGeometry, ShaderMaterial, Vector3 } from 'three';
 
 const geo = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5); // z: 0 → 1 along the shadow
 
@@ -32,20 +32,27 @@ export function createCaustic(tint: Color, radius: number, height: number, sunDi
         float s = 1.0 - vUv.y;          // 0 at bottle base, 1 at the neck tip of the shadow
         float d = s * uLen / uR;        // distance from the base center in bottle radii
         float w = mix(1.0, 0.36, smoothstep(0.5, 0.72, s));
-        float body = smoothstep(w, w * 0.55, abs(x)) * smoothstep(0.9, 1.3, d) * smoothstep(1.0, 0.9, s);
-        // the thick base + body act as a cylindrical lens: a bright crescent just outside the
-        // footprint, then a focused line down the shadow axis with wavy filaments
-        float crescent = exp(-pow((d - 1.25 - 0.25 * x * x) / 0.16, 2.0)) * smoothstep(0.95, 0.3, abs(x));
-        float focusLine = exp(-pow(x / 0.09, 2.0)) * smoothstep(1.1, 1.8, d) * smoothstep(0.6, 0.35, s);
-        float wav = 0.5 + 0.5 * sin(x * 19.0 + sin(d * 3.1 + uTime * 0.5) * 1.7 + d * 1.3);
-        wav = pow(wav, 8.0) * body;
-        float liquidBoost = 1.0 + uFill * 1.2;
-        vec3 c = uTint * (body * 0.07 + wav * 0.35 + (focusLine * 0.9 + crescent * 1.1) * liquidBoost);
+        // dark tinted shadow body (soft-edged), clipped at the neck tip
+        float body = smoothstep(w, w * 0.75, abs(x)) * smoothstep(0.85, 1.05, d) * smoothstep(1.0, 0.94, s);
+        // thin bright lens-focus band down the axis and a crescent hugging the base
+        float focusLine = exp(-pow(x / 0.05, 2.0)) * smoothstep(1.1, 1.7, d) * smoothstep(0.55, 0.3, s);
+        float crescent = exp(-pow((d - 1.2 - 0.3 * x * x) / 0.08, 2.0)) * smoothstep(0.8, 0.2, abs(x));
+        float wav = 0.5 + 0.5 * sin(x * 17.0 + sin(d * 2.7 + uTime * 0.4) * 1.5 + d * 1.1);
+        wav = pow(wav, 12.0);
+        float clear = step(0.75, min(uTint.r, min(uTint.g, uTint.b)));
+        float dark = mix(0.3, 0.62, clear) * (1.0 - uFill * 0.35);
+        vec3 tn = mix(vec3(dot(uTint, vec3(0.333))), uTint, 0.55) / max(max(uTint.r, uTint.g), uTint.b);
+        vec3 shade = mix(vec3(1.0), tn * dark, body);
+        float boost = (focusLine * 0.55 + crescent * 0.6 + wav * 0.25) * body * (1.0 + uFill * 0.4);
+        vec3 c = min(shade + tn * boost, vec3(1.4));
         float clip = smoothstep(uRailZ.x, uRailZ.x + 0.01, vW.z) * smoothstep(uRailZ.y, uRailZ.y - 0.01, vW.z);
-        gl_FragColor = vec4(c * uStrength * clip, 1.0);
+        c = mix(vec3(1.0), c, clip * uStrength);
+        gl_FragColor = vec4(c, 1.0);
       }`,
     transparent: true,
-    blending: AdditiveBlending,
+    blending: CustomBlending,
+    blendSrc: ZeroFactor,
+    blendDst: SrcColorFactor,
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -2,
