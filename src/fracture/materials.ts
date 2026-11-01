@@ -132,7 +132,7 @@ export function createCheapMaterial(env: Texture | null, envRot: { x: number; y:
   vec3 sR = reflect( -sV, normal );
   float sG = max( dot( sR, sSun ), 0.0 );
   float isEdge = step( 0.75, vEdge );
-  vec3 glint = uSunColor * ( pow( sG, 2500.0 ) * 30.0 + pow( sG, 300.0 ) * 5.0 + pow( sG, 40.0 ) * 0.8 );
+  vec3 glint = uSunColor * ( pow( sG, 2500.0 ) * 30.0 + pow( sG, 300.0 ) * 6.0 + pow( sG, 90.0 ) * 2.0 + pow( sG, 30.0 ) * 0.5 );
   vec3 sHue = mix( uTint / max( max( uTint.r, uTint.g ), max( uTint.b, 1e-3 ) ), vec3( 1.0 ), 0.35 );
   float isBase = step( 1.5, vEdge );
   float sLit = max( dot( normal, sSun ), 0.0 );

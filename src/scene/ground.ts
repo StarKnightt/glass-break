@@ -28,7 +28,9 @@ float gbDirtMask(vec2 xz){
   // trodden strip along the base of the fence and toward the shooter
   float strip = exp(-pow((xz.y-0.35)/0.55, 2.0)) * 0.55;
   float path = exp(-pow(xz.x/1.2, 2.0)) * smoothstep(1.0, 3.0, xz.y) * smoothstep(12.0, 6.0, xz.y) * 0.35;
-  return smoothstep(0.55, 0.8, n + strip + path);
+  // trampled ground under the bottle span, where broken glass lands
+  float span = smoothstep(2.9, 2.2, abs(xz.x)) * smoothstep(-2.0, -1.3, xz.y) * smoothstep(2.3, 1.7, xz.y) * 0.45;
+  return smoothstep(0.55, 0.8, n + strip + path + span);
 }
 `;
 

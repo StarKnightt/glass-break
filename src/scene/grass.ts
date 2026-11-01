@@ -123,8 +123,16 @@ export function createGrass(sunDir: Vector3, count = 30000) {
       cz = -7 + rnd() * 15;
       if (cz > 3 && Math.abs(cx) < 1.5) continue; // keep the shooter's spot clear
     }
-    const tuft = 6 + Math.floor(rnd() * 18);
-    const tall = r < 0.3 ? 0.28 + rnd() * 0.4 : r < 0.55 ? 0.18 + rnd() * 0.3 : 0.1 + rnd() * 0.25;
+    let tuft = 6 + Math.floor(rnd() * 18);
+    let tall = r < 0.3 ? 0.28 + rnd() * 0.4 : r < 0.55 ? 0.18 + rnd() * 0.3 : 0.1 + rnd() * 0.25;
+    // Trampled strip under the bottle span: mostly bare, sparse short dry stubble.
+    const ex = Math.max(0, Math.abs(cx) - 2.3), ez = Math.max(0, -1.5 - cz, cz - 1.8);
+    const worn = Math.max(0, 1 - Math.hypot(ex, ez) / 0.5);
+    if (worn > 0) {
+      if (rnd() < 0.85 * worn) continue;
+      tall *= 1 - 0.8 * worn;
+      tuft = Math.max(2, Math.round(tuft * (1 - 0.7 * worn)));
+    }
     const pick = base[Math.floor(rnd() * base.length)];
     for (let k = 0; k < tuft && i < count; k++, i++) {
       p.set(cx + (rnd() - 0.5) * 0.18, 0, cz + (rnd() - 0.5) * 0.18);

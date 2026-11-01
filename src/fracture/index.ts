@@ -681,7 +681,7 @@ export function createFracture(world: World, bottles: BottleSystem) {
     fa.set(m[o], 0, m[o + 2]);
     if (fa.lengthSq() < 1e-10) return;
     fa.normalize().applyQuaternion(fq);
-    fb.set((Math.random() - 0.5) * 0.3, fa.y >= 0 ? 1 : -1, (Math.random() - 0.5) * 0.3).normalize();
+    fb.set((Math.random() - 0.5) * 0.55, fa.y >= 0 ? 1 : -1, (Math.random() - 0.5) * 0.55).normalize();
     fq2.setFromUnitVectors(fa, fb);
     fq.premultiply(fq2);
     br.q[i * 4] = fq.x; br.q[i * 4 + 1] = fq.y; br.q[i * 4 + 2] = fq.z; br.q[i * 4 + 3] = fq.w;
