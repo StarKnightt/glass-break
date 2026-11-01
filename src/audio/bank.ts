@@ -145,19 +145,20 @@ export function createSoundBank(ctx: BaseAudioContext) {
     /** Air rifle: sharp pneumatic crack, low thump, short tail; the hills answer. */
     gunshot() {
       const t = ctx.currentTime + 0.005;
+      const G = 2.2;
       const v = rnd(0.9, 1.08);
       const pan = rnd(-0.06, 0.06);
       // sharp transient (report)
-      noiseVoice(t, [['highpass', 1400 * v, 0.7], ['peaking', 3200 * v, 1.2]], 1.0, 0.0006, 0.011, { pan, rev: 0.5, echo: 1.0 });
+      noiseVoice(t, [['highpass', 1400 * v, 0.7], ['peaking', 3200 * v, 1.2]], 1.0 * G, 0.0006, 0.011, { pan, rev: 0.5, echo: 1.0 });
       // air blast body
-      noiseVoice(t, [['bandpass', 900 * v, 0.8]], 0.55, 0.001, 0.035, { pan, rev: 0.6, echo: 0.8 });
+      noiseVoice(t, [['bandpass', 900 * v, 0.8]], 0.55 * G, 0.001, 0.035, { pan, rev: 0.6, echo: 0.8 });
       // low thump (chest of the gun)
-      toneVoice(t, 'sine', 150 * v, 45, 0.07, 0.75, 0.002, 0.045, { pan, rev: 0.2 });
+      toneVoice(t, 'sine', 150 * v, 45, 0.07, 0.75 * G, 0.002, 0.045, { pan, rev: 0.2 });
       // mechanism click + spring twang
-      noiseVoice(t - 0.004, [['bandpass', 5200, 4]], 0.18, 0.0003, 0.003, { pan: pan + 0.1 });
-      toneVoice(t + 0.002, 'triangle', 420 * v, 380 * v, 0.05, 0.05, 0.001, 0.03, { pan: pan + 0.1 });
+      noiseVoice(t - 0.004, [['bandpass', 5200, 4]], 0.18 * G, 0.0003, 0.003, { pan: pan + 0.1 });
+      toneVoice(t + 0.002, 'triangle', 420 * v, 380 * v, 0.05, 0.05 * G, 0.001, 0.03, { pan: pan + 0.1 });
       // short outdoor tail
-      noiseVoice(t + 0.01, [['lowpass', 1600, 0.5]], 0.12, 0.01, 0.09, { pan, rev: 0.8, echo: 0.4 });
+      noiseVoice(t + 0.01, [['lowpass', 1600, 0.5]], 0.12 * G, 0.01, 0.09, { pan, rev: 0.8, echo: 0.4 });
     },
     /** Layered glass break. `distance` (m) only shades level slightly. */
     shatter(type: string, pan = 0, distance = 6) {
@@ -212,7 +213,7 @@ export function createSoundBank(ctx: BaseAudioContext) {
     splash(fill: number, pan = 0) {
       const t = ctx.currentTime + 0.012;
       const stretch = 1 + slowAmt * 1.2;
-      const a = 0.35 + 0.5 * fill;
+      const a = (0.35 + 0.5 * fill) * 2.6;
       noiseVoice(t, [['bandpass', 950, 0.7], ['lowpass', 2400, 0.5]], 0.5 * a, 0.004, 0.07 * stretch, { bus: 'world', pan, rev: 0.4 }, slowPitch);
       noiseVoice(t, [['lowpass', 380, 0.8]], 0.4 * a, 0.006, 0.05 * stretch, { bus: 'world', pan });
       for (let i = 0; i < 7; i++) {
@@ -224,9 +225,10 @@ export function createSoundBank(ctx: BaseAudioContext) {
     woodThud(pan = 0) {
       const t = ctx.currentTime + 0.004;
       const v = rnd(0.92, 1.08);
-      toneVoice(t, 'sine', 330 * v, 160 * v, 0.04, 0.45, 0.001, 0.025, { pan, rev: 0.4, echo: 0.3 });
-      noiseVoice(t, [['bandpass', 1300 * v, 2.5]], 0.5, 0.0005, 0.008, { pan, rev: 0.3 });
-      toneVoice(t, 'sine', 95, 70, 0.05, 0.25, 0.002, 0.04, { pan });
+      const G = 2;
+      toneVoice(t, 'sine', 330 * v, 160 * v, 0.04, 0.45 * G, 0.001, 0.025, { pan, rev: 0.4, echo: 0.3 });
+      noiseVoice(t, [['bandpass', 1300 * v, 2.5]], 0.5 * G, 0.0005, 0.008, { pan, rev: 0.3 });
+      toneVoice(t, 'sine', 95, 70, 0.05, 0.25 * G, 0.002, 0.04, { pan });
     },
     /** Pellet into dirt: dull puff. */
     dirtPuff(pan = 0) {

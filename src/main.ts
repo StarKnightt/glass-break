@@ -8,6 +8,10 @@ import { createBottles } from './bottles';
 import { createShooting } from './shooting';
 import { createHud } from './ui/hud';
 import { createFracture } from './fracture';
+import { createSlowmo } from './fx/slowmo';
+import { createAudio } from './audio';
+import { createLiquid } from './liquid';
+import { wireFeel } from './fx/wire';
 
 const MAX_PIXEL_RATIO = 1.5;
 
@@ -53,12 +57,18 @@ async function boot() {
   const fracture = createFracture(world, bottles);
   shooting.autoRemove = false;
   shooting.onHit((bottle, point, normal, dir) => fracture.shatter(bottle, point, normal, dir));
+  const slowmo = createSlowmo(world, post);
+  const audio = createAudio(world, () => slowmo.amount);
+  const liquid = createLiquid(world);
+  wireFeel({ world, shooting, fracture, slowmo, audio, liquid });
   const resetAll = bottles.resetAll;
   bottles.resetAll = () => {
     fracture.clearShards();
+    slowmo.reset();
+    liquid.clear();
     resetAll();
   };
-  Object.assign(window, { world, post, bottles, shooting, ui, fracture });
+  Object.assign(window, { world, post, bottles, shooting, ui, fracture, slowmo, audio, liquid });
 
   const resize = () => {
     renderer.setPixelRatio(Math.min(devicePixelRatio, MAX_PIXEL_RATIO));
