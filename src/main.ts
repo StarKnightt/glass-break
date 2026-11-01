@@ -1,4 +1,5 @@
-import { NoToneMapping, PCFShadowMap, SRGBColorSpace, Timer, WebGLRenderer } from 'three';
+import { RENDER_MODE } from './cinematic/seed';
+import { NoToneMapping, PCFShadowMap, SRGBColorSpace, Timer, WebGLRenderer, type Vector3 } from 'three';
 import { buildBackyard } from './scene';
 import { createCameraRig } from './scene/camera';
 import { createPost } from './fx/post';
@@ -12,8 +13,13 @@ import { createSlowmo } from './fx/slowmo';
 import { createAudio } from './audio';
 import { createLiquid } from './liquid';
 import { wireFeel } from './fx/wire';
+import { createTracer } from './shooting/tracer';
+import { createCinematic } from './cinematic';
 
 const MAX_PIXEL_RATIO = 1.5;
+/** Offline render resolution (`?cinematic&render=1`). */
+const RENDER_W = 1920;
+const RENDER_H = 1080;
 
 async function boot() {
   const app = document.getElementById('app')!;
@@ -69,9 +75,23 @@ async function boot() {
     liquid.clear();
     resetAll();
   };
-  Object.assign(window, { world, post, bottles, shooting, ui, fracture, slowmo, audio, liquid });
+  const tracer = createTracer(world);
+  let shotDir: Vector3 | null = null;
+  shooting.onFire((_o, dir) => (shotDir = dir));
+  shooting.onHit((_b, point) => shotDir && tracer.fire(point, shotDir));
+  shooting.onMiss((point) => shotDir && tracer.fire(point, shotDir));
+  const cine = createCinematic({ world, post, bottles, fracture, liquid, slowmo, shooting, audio, hud: ui.root });
+  Object.assign(window, { world, post, bottles, shooting, ui, fracture, slowmo, audio, liquid, cine });
 
   const resize = () => {
+    if (RENDER_MODE) {
+      renderer.setPixelRatio(1);
+      renderer.setSize(RENDER_W, RENDER_H, false);
+      post.composer.setSize(RENDER_W, RENDER_H, false);
+      camera.aspect = RENDER_W / RENDER_H;
+      camera.updateProjectionMatrix();
+      return;
+    }
     renderer.setPixelRatio(Math.min(devicePixelRatio, MAX_PIXEL_RATIO));
     renderer.setSize(innerWidth, innerHeight);
     post.composer.setSize(innerWidth, innerHeight);
@@ -79,6 +99,7 @@ async function boot() {
     camera.updateProjectionMatrix();
   };
   addEventListener('resize', resize);
+  if (RENDER_MODE) resize();
 
   if (import.meta.env.DEV) {
     /** Renders one frame at a fixed size and returns it as a JPEG data URL (for automated shots). */
@@ -102,11 +123,10 @@ async function boot() {
   timer.connect(document);
   const fovRad = () => (camera.fov * Math.PI) / 180;
 
-  renderer.setAnimationLoop((now) => {
-    timer.update(now);
-    const dtReal = Math.min(timer.getDelta(), 0.1);
+  const step = (dtReal: number) => {
     hud?.begin();
     renderer.info.reset();
+    cine.preStep(dtReal);
 
     const t = world.time;
     t.real += dtReal;
@@ -118,10 +138,55 @@ async function boot() {
     yard.dust.update(t.game, renderer.domElement.height, fovRad());
     for (const fn of updates) fn(dt, t.game);
     for (const fn of realUpdates) fn(dtReal, t.real);
+    cine.postStep(dtReal);
 
     post.composer.render(dtReal);
     hud?.end(dtReal * 1000);
+  };
+
+  if (RENDER_MODE) {
+    // offline: the page is stepped frame by frame by scripts/render-intro.mjs
+    const FRAME = 1 / 60;
+    Object.assign(window, {
+      __cine: {
+        start: () => cine.play(),
+        /** Advances exactly 1/60 s and returns the frame as a PNG data URL. */
+        renderFrame: () => {
+          step(FRAME);
+          return renderer.domElement.toDataURL('image/png');
+        },
+        warm: (n: number) => {
+          for (let i = 0; i < n; i++) step(FRAME);
+        },
+        get done() {
+          return cine.done;
+        },
+        get time() {
+          return cine.time;
+        },
+        get events() {
+          return cine.events;
+        },
+        renderAudio: async (duration: number) => (await import('./cinematic/soundtrack')).renderSoundtrack(cine.events, duration),
+      },
+    });
+    return;
+  }
+
+  renderer.setAnimationLoop((now) => {
+    timer.update(now);
+    step(Math.min(timer.getDelta(), 0.1));
   });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyC' && !e.repeat) cine.play();
+    else if (e.code === 'Escape' && cine.active) cine.stop();
+  });
+  // Esc while pointer-locked only releases the lock (no keydown), so that skips too
+  shooting.onLockChange((locked) => {
+    if (!locked && cine.active) cine.stop();
+  });
+  if (new URLSearchParams(location.search).has('cinematic')) setTimeout(() => cine.play(), 900);
 }
 
 boot();

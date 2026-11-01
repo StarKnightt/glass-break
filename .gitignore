@@ -2,3 +2,5 @@ node_modules
 dist
 *.log
 .vite
+.live-test-done
+.render/
