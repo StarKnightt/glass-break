@@ -146,8 +146,8 @@ export function createImpacts(scene: Scene) {
           .multiplyScalar(0.6 + Math.random() * 1.4)
           .addScaledVector(tan, (Math.random() - 0.5) * 1.6)
           .addScaledVector(bit, (Math.random() - 0.5) * 1.6);
-        col.setRGB(0.42 + r * 0.12, 0.36 + r * 0.1, 0.27 + r * 0.08);
-        spawn(p, tmp, col, 0.05 + Math.random() * 0.07, 0.35, 0.9 + Math.random() * 0.9, 3.2, 0.4);
+        col.setRGB(0.3 + r * 0.08, 0.24 + r * 0.06, 0.17 + r * 0.05);
+        spawn(p, tmp, col, 0.04 + Math.random() * 0.06, 0.3, 0.9 + Math.random() * 0.9, 3.2, 0.4);
       }
       for (let k = 0; k < 8; k++) {
         tmp.copy(n).multiplyScalar(1.5 + Math.random() * 2).addScaledVector(tan, (Math.random() - 0.5) * 2).addScaledVector(bit, (Math.random() - 0.5) * 2);
@@ -165,13 +165,13 @@ export function createImpacts(scene: Scene) {
           .addScaledVector(tan, (Math.random() - 0.5) * 2.4)
           .addScaledVector(bit, (Math.random() - 0.5) * 2.4);
         const r = Math.random();
-        col.setRGB(0.55 + r * 0.2, 0.42 + r * 0.15, 0.28 + r * 0.1);
+        col.setRGB(0.36 + r * 0.15, 0.26 + r * 0.1, 0.16 + r * 0.06);
         spawn(p, tmp, col, 0.01 + Math.random() * 0.012, 1, 0.6 + Math.random() * 0.5, 0.6, 9.8);
       }
       for (let k = 0; k < 10; k++) {
         tmp.copy(n).multiplyScalar(0.3 + Math.random() * 0.6).addScaledVector(tan, (Math.random() - 0.5) * 0.6).addScaledVector(bit, (Math.random() - 0.5) * 0.6);
-        col.setRGB(0.5, 0.42, 0.32);
-        spawn(p, tmp, col, 0.035 + Math.random() * 0.04, 0.25, 0.8 + Math.random() * 0.6, 3, 0.3);
+        col.setRGB(0.26, 0.21, 0.15);
+        spawn(p, tmp, col, 0.03 + Math.random() * 0.035, 0.2, 0.8 + Math.random() * 0.6, 3, 0.3);
       }
       let d = decals[decalNext];
       if (!d) {

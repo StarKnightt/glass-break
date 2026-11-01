@@ -4,7 +4,7 @@ const VIEW = new URLSearchParams(location.search).get('view');
 /** `?view=rail` is a dev close-up of the top rail for visual checks. */
 export const EYE = VIEW === 'rail' ? new Vector3(-0.5, 1.62, 1.9) : new Vector3(-1.35, 1.63, 6.6);
 export const LOOK_AT = VIEW === 'rail' ? new Vector3(0.5, 1.15, 0) : new Vector3(-0.1, 1.16, 0);
-const FOV = VIEW === 'rail' ? 42 : 32;
+const FOV = VIEW === 'rail' ? 42 : 29;
 
 /**
  * First-person camera rig. `yaw`/`pitch` are the aim offsets (later driven by the shooting
