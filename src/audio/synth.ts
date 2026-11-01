@@ -94,7 +94,7 @@ export function bakeShatter(ctx: BaseAudioContext, pitch: number) {
   const nGrain = 110 + Math.floor(Math.random() * 60);
   for (let i = 0; i < nGrain; i++) {
     const u = Math.random();
-    const t = 0.003 + span * Math.pow(u, 1.9);
+    const t = 0.003 + span * Math.pow(u, 2.6);
     const fall = 1 - (t / (span + 0.05)) * 0.8;
     const pan = rnd(-0.9, 0.9);
     if (Math.random() < 0.3) addNoiseClick(L, R, sr, t, rnd(0.05, 0.22) * fall, rnd(0.0006, 0.002), pan);
@@ -105,18 +105,23 @@ export function bakeShatter(ctx: BaseAudioContext, pitch: number) {
     const t = span + rnd(0, 0.3);
     addMode(L, R, sr, t, rnd(3000, 9000) * pitch, rnd(0.015, 0.05), rnd(0.008, 0.04), rnd(-0.9, 0.9));
   }
-  normalize(L, R, 0.9);
+  normalize(L, R, 0.6);
+  const fade = Math.floor(sr * 0.015);
+  for (let i = 0; i < fade; i++) {
+    L[i] *= i / fade;
+    R[i] *= i / fade;
+  }
   return buf;
 }
 
 /** One small shard ping: bar-like inharmonic modes (1, 2.76, 5.40) + click. */
-export function bakeTinkle(ctx: BaseAudioContext) {
+export function bakeTinkle(ctx: BaseAudioContext, tauK = 1) {
   const sr = ctx.sampleRate;
   const buf = ctx.createBuffer(1, Math.ceil(sr * 0.35), sr);
   const L = buf.getChannelData(0);
   const R = new Float32Array(L.length);
   const f = rnd(2800, 6000);
-  const tau = rnd(0.025, 0.09);
+  const tau = rnd(0.025, 0.09) * tauK;
   const ratios = [1, rnd(2.6, 2.9), rnd(5.1, 5.6)];
   ratios.forEach((r, i) => addMode(L, R, sr, 0.001, f * r, [0.5, 0.3, 0.16][i], tau / (1 + i * 0.8), -1, 0.0002));
   if (Math.random() < 0.5) addMode(L, R, sr, rnd(0.01, 0.05), f * rnd(1.1, 1.5), 0.25, tau * 0.6, -1, 0.0002); // bounce

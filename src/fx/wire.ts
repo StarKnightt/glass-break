@@ -23,7 +23,7 @@ export function wireFeel(o: { world: World; shooting: Shooting; fracture: unknow
   shooting.onMiss((point, _n, object) => audio.miss(point, isFence(object)));
   if (fracture?.onShatter) {
     fracture.onShatter((bottle, point, dir) => {
-      slowmo.trigger(bottle.group.position);
+      slowmo.trigger(bottle.group.position.clone().setY(bottle.group.position.y + bottle.height * 0.45));
       audio.shatter(bottle.type, point);
       if (bottle.fill > 0.02) {
         audio.splash(bottle.fill, point);
@@ -32,10 +32,15 @@ export function wireFeel(o: { world: World; shooting: Shooting; fracture: unknow
     });
   } else {
     shooting.onHit((bottle, point) => {
-      slowmo.trigger(bottle.group.position);
+      slowmo.trigger(bottle.group.position.clone().setY(bottle.group.position.y + bottle.height * 0.45));
       audio.shatter(bottle.type, point);
     });
   }
   fracture?.onShardImpact?.((p, speed, size) => audio.tinkle(p, speed, size));
-  void world;
+  let lastDrip = 0;
+  liquid.onLand((p) => {
+    if (world.time.real - lastDrip < 0.025) return;
+    lastDrip = world.time.real;
+    audio.drip(p);
+  });
 }

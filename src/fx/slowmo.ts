@@ -9,13 +9,19 @@ export const SLOWMO = {
   hitStopScale: 0.02,
   hitStop: 0.05,
   slowScale: 0.2,
+  chainSlowScale: 0.35,
   enter: 0.09,
-  hold: 0.8, // end of the slow plateau, measured from the trigger
+  hold: 0.7, // plateau length after the ease-in (first break of a chain)
+  chainDecay: 0.6, // k-th break within `chainWindow` holds hold * chainDecay^k
+  chainWindow: 3,
+  skipHitStopUnder: 0.4,
   exit: 0.42,
-  extend: 0.55, // a later break pushes the plateau end to at least now + extend
-  maxHold: 1.5,
-  fovPunch: 1.6, // deg (at base fov), eased in, held while slow
-  pushIn: 0.045, // m toward the bottle
+  fovPunch: 2.4, // deg peak (at base fov), 60 ms attack
+  fovHold: 0.8, // deg while slow
+  zoomFov: 17, // cinematic punch-in target from the default view (deg)
+  zoomedPunch: 0.85, // fov multiplier when the player is already scoped in
+  aimFollow: 0.85, // fraction of the way the view turns toward the bottle
+  zoomRate: 7, // two-pole follow rate (1/s): ~0.3 s smooth S-curve, no jump cut
 };
 
 const smoother = (x: number) => {
@@ -25,18 +31,25 @@ const smoother = (x: number) => {
 
 export function createSlowmo(world: World, post: Post | null) {
   const { camera, cameraRig: rig } = world;
+  let clock = 0; // real seconds
   let active = false;
-  let t = 0;
-  let enterAt = 0; // start of the ease into the plateau
-  let enterFrom = 0; // scale the ease starts from
+  let enterAt = 0;
+  let enterFrom = 1;
+  let slow = SLOWMO.slowScale;
   let holdEnd = 0;
-  let chainStart = 0;
-  let dipUntil = -1;
-  /** 0..1 how "slow" the world currently feels (drives camera, post and audio). */
+  let lastBreak = -1e9;
+  let chain = 0;
   let amount = 0;
-  let punch = 0; // fast attack kick on top of `amount`
-  const push = new Vector3(); // camera-local unit push direction
-  const tmp = new Vector3();
+  let punchT = 1e9; // seconds since the last punch
+  let punchGain = 0;
+  let dipUntil = -1;
+  // cinematic punch-in: two cascaded low-passes give a smooth S-curve in and out
+  let z1 = 0;
+  let z2 = 0;
+  const off = { yaw: 0, pitch: 0 }; // smoothed aim offset toward the bottle
+  const offT = { yaw: 0, pitch: 0 };
+  const d = new Vector3();
+  const zoomOf = () => (globalThis as { shooting?: { zoom?: number } }).shooting?.zoom ?? 0;
 
   const vig = post?.vignette;
   const baseDark = vig?.darkness ?? 0;
@@ -45,85 +58,104 @@ export function createSlowmo(world: World, post: Post | null) {
   const ca = post?.ca;
   const baseCa = ca ? ca.offset.clone() : null;
 
-  function scaleAt(time: number) {
-    if (time < enterAt) return SLOWMO.hitStopScale;
-    if (time < enterAt + SLOWMO.enter) {
-      return enterFrom + (SLOWMO.slowScale - enterFrom) * smoother((time - enterAt) / SLOWMO.enter);
-    }
-    if (time < holdEnd) return SLOWMO.slowScale;
-    const k = (time - holdEnd) / SLOWMO.exit;
+  function scaleAt(t: number) {
+    if (t < enterAt) return SLOWMO.hitStopScale;
+    if (t < enterAt + SLOWMO.enter) return enterFrom + (slow - enterFrom) * smoother((t - enterAt) / SLOWMO.enter);
+    if (t < holdEnd) return slow;
+    const k = (t - holdEnd) / SLOWMO.exit;
     if (k >= 1) return 1;
-    // lingers slow, then accelerates back (ease-in-out, biased toward the end)
-    const e = smoother(k);
-    return SLOWMO.slowScale + (1 - SLOWMO.slowScale) * e * e * (3 - 2 * e) * 0.5 + (1 - SLOWMO.slowScale) * e * 0.5;
+    return slow + (1 - slow) * smoother(k);
   }
 
   function trigger(target?: Vector3) {
     if (target) {
-      tmp.copy(target);
-      camera.worldToLocal(tmp);
-      if (tmp.lengthSq() > 1e-6) push.copy(tmp).normalize();
-    } else push.set(0, 0, -1);
-    punch = 1;
-    if (!active) {
-      active = true;
-      t = 0;
-      chainStart = 0;
-      enterAt = SLOWMO.hitStop;
+      d.copy(target).sub(camera.position).normalize();
+      const yaw = Math.atan2(-d.x, -d.z) - rig.base.y;
+      const pitch = Math.asin(d.y) - rig.base.x;
+      offT.yaw = (yaw - rig.yaw) * SLOWMO.aimFollow;
+      offT.pitch = (pitch - rig.pitch) * SLOWMO.aimFollow;
+    }
+    const since = clock - lastBreak;
+    chain = since < SLOWMO.chainWindow ? chain + 1 : 0;
+    lastBreak = clock;
+    const hold = SLOWMO.hold * Math.pow(SLOWMO.chainDecay, chain);
+    punchGain = Math.max(punchT < 0.3 ? punchGain * 0.5 : 0, Math.pow(SLOWMO.chainDecay, chain));
+    punchT = 0;
+    const cur = world.time.scale;
+    if (!active || chain === 0) {
+      enterAt = clock + SLOWMO.hitStop;
       enterFrom = SLOWMO.hitStopScale;
-      holdEnd = SLOWMO.hold;
+      slow = chain === 0 ? SLOWMO.slowScale : SLOWMO.chainSlowScale;
+      holdEnd = enterAt + SLOWMO.enter + hold;
+      active = true;
       return;
     }
-    if (t < holdEnd) {
-      holdEnd = Math.min(Math.max(holdEnd, t + SLOWMO.extend), chainStart + SLOWMO.maxHold);
-      dipUntil = t + 0.025; // tiny secondary hit-stop
-    } else {
-      // already easing out: glide back down from where we are, no hard hit-stop
-      enterFrom = world.time.scale;
-      enterAt = t;
-      chainStart = t;
-      holdEnd = t + SLOWMO.extend;
-      dipUntil = t + 0.02;
+    // chained break: never deepen hard, only top the plateau up a little
+    if (since >= SLOWMO.skipHitStopUnder) dipUntil = clock + SLOWMO.hitStop * 0.8;
+    const inHold = clock < holdEnd;
+    if (!inHold) {
+      slow = Math.min(SLOWMO.chainSlowScale, Math.max(slow, cur));
+      enterFrom = cur;
+      enterAt = since < SLOWMO.skipHitStopUnder ? clock : clock + SLOWMO.hitStop * 0.5;
     }
+    holdEnd = Math.max(holdEnd, clock + SLOWMO.enter + hold);
   }
 
   function reset() {
     active = false;
     amount = 0;
-    punch = 0;
+    punchGain = 0;
+    punchT = 1e9;
+    chain = 0;
+    lastBreak = -1e9;
+    z1 = z2 = 0;
+    off.yaw = off.pitch = offT.yaw = offT.pitch = 0;
     world.time.scale = 1;
     apply();
   }
 
   function apply() {
     const a = smoother(amount);
-    if (vig) vig.darkness = baseDark + 0.16 * a;
-    if (satU) satU.value = baseSat * (1 - 0.14 * a);
-    if (ca && baseCa) ca.offset.copy(baseCa).multiplyScalar(1 + 1.6 * a);
+    if (vig) vig.darkness = baseDark + 0.08 * a;
+    if (satU) satU.value = baseSat * (1 - 0.06 * a);
+    if (ca && baseCa) ca.offset.copy(baseCa).multiplyScalar(1 + 0.3 * a);
   }
 
-  // Registered after the shooting system: its spring rewrites camera.fov / kickPos every frame,
-  // we add our offsets on top.
+  // Registered after the shooting system: its spring rewrites camera.fov every frame; we add on top.
   world.onRealUpdate((dt) => {
+    clock += dt;
+    punchT += dt;
     if (active) {
-      t += dt;
-      let s = scaleAt(t);
-      if (t < dipUntil) s = Math.min(s, 0.05);
-      if (s >= 1 && t > holdEnd) {
-        active = false;
-        s = 1;
-      }
-      world.time.scale = s;
+      let s = scaleAt(clock);
+      if (clock < dipUntil) s = Math.min(s, SLOWMO.hitStopScale * 2);
+      if (s >= 1 && clock > holdEnd) active = false;
+      world.time.scale = active ? s : 1;
     }
     const target = active ? Math.min(1, (1 - world.time.scale) / (1 - SLOWMO.slowScale)) : 0;
-    // asymmetric follow: quick in, smooth out
     amount += (target - amount) * (1 - Math.exp(-dt * (target > amount ? 18 : 5)));
-    punch *= Math.exp(-dt * 9);
-    const p = smoother(amount) * 0.8 + punch * 0.35;
-    if (p > 1e-4) {
-      camera.fov -= SLOWMO.fovPunch * p * (camera.fov / rig.baseFov);
+    // punch: 60 ms smooth attack to the peak, then ~120 ms decay; the held part rides on `amount`
+    const pk = punchT < 0.06 ? smoother(punchT / 0.06) : Math.exp(-(punchT - 0.06) / 0.12);
+    // punch-in: in during hit-stop / early slow-mo, held, out with the slow-mo exit
+    const zt = active && clock < holdEnd + SLOWMO.exit * 0.25 ? 1 : 0;
+    const kz = 1 - Math.exp(-dt * SLOWMO.zoomRate * 1.6);
+    z1 += (zt - z1) * kz;
+    z2 += (z1 - z2) * kz;
+    const ko = 1 - Math.exp(-dt * 10);
+    off.yaw += (offT.yaw - off.yaw) * ko;
+    off.pitch += (offT.pitch - off.pitch) * ko;
+    if (z2 > 1e-4) {
+      const zf = SLOWMO.zoomFov / rig.baseFov;
+      const f = zf + (SLOWMO.zoomedPunch - zf) * Math.min(1, zoomOf());
+      camera.fov *= 1 - (1 - Math.min(1, f)) * z2;
+      // aim offset rides on the additive kick (rewritten by the shooting spring each frame)
+      rig.kick.yaw += off.yaw * z2;
+      rig.kick.pitch += off.pitch * z2;
       camera.updateProjectionMatrix();
-      rig.kickPos.addScaledVector(push, SLOWMO.pushIn * p);
+    }
+    const deg = (SLOWMO.fovPunch - SLOWMO.fovHold) * pk * punchGain + SLOWMO.fovHold * smoother(Math.min(1, amount * 1.4));
+    if (deg > 1e-3) {
+      camera.fov -= deg * (camera.fov / rig.baseFov);
+      camera.updateProjectionMatrix();
     }
     apply();
   });
@@ -133,6 +165,10 @@ export function createSlowmo(world: World, post: Post | null) {
     reset,
     get active() {
       return active;
+    },
+    /** Breaks so far in the current chain (0 = first). */
+    get chain() {
+      return chain;
     },
     /** 0..1 smoothed slowness for audio filters. */
     get amount() {

@@ -61,7 +61,10 @@ export function createAudio(world: World, getSlow: () => number) {
     tinkle(p: Vector3, speed: number, size: number) {
       if (!bank) return;
       const { pan, dist } = place(p);
-      bank.tinkle(size, speed, pan, dist);
+      bank.tinkle(size, speed, pan, dist, p.y < 0.08 ? 'dirt' : 'wood');
+    },
+    drip(p: Vector3) {
+      bank?.drip(place(p).pan);
     },
     splash(fill: number, p?: Vector3) {
       bank?.splash(fill, place(p).pan);
@@ -96,25 +99,41 @@ export function createAudio(world: World, getSlow: () => number) {
       else if (name === 'splash') b.splash(0.8);
       else if (name === 'wood') b.woodThud();
       else if (name === 'dirt') b.dirtPuff();
-      else if (name === 'tinkles') for (let i = 0; i < 30; i++) at(0.02 + i * 0.045 + Math.random() * 0.03, () => b.tinkle(0.004 + Math.random() * 0.03, 1 + Math.random() * 4, Math.random() * 1.4 - 0.7));
+      else if (name === 'tinkles') for (let i = 0; i < 30; i++) at(0.02 + i * 0.045 + Math.random() * 0.03, () => b.tinkle(0.004 + Math.random() * 0.03, 1 + Math.random() * 4, Math.random() * 1.4 - 0.7, 6, type === 'dirt' ? 'dirt' : 'wood'));
       else {
         b.gunshot();
         at(0.03, () => (b.shatter(type), b.slowmoIn(), b.splash(0.7), b.setSlow(1)));
-        for (let i = 0; i < 26; i++) at(0.35 + i * 0.05 + Math.random() * 0.03, () => b.tinkle(0.004 + Math.random() * 0.03, 1 + Math.random() * 4, Math.random() * 1.4 - 0.7));
+        for (let i = 0; i < 26; i++) at(0.35 + i * 0.05 + Math.random() * 0.03, () => b.tinkle(0.004 + Math.random() * 0.03, 1 + Math.random() * 4, Math.random() * 1.4 - 0.7, 6, i % 2 ? 'dirt' : 'wood'));
+        for (let i = 0; i < 14; i++) at(0.3 + Math.random() * 0.6, () => b.drip(Math.random() - 0.5));
         at(1.2, () => b.setSlow(0.3));
         at(1.5, () => b.setSlow(0));
       }
       const buf = await ctx.startRendering();
       let peak = 0;
+      let peakAt = 0;
+      let onset = -1;
       let sum = 0;
-      for (let c = 0; c < 2; c++) {
-        const d = buf.getChannelData(c);
-        for (let i = 0; i < d.length; i++) {
-          peak = Math.max(peak, Math.abs(d[i]));
-          sum += d[i] * d[i];
+      const d0 = buf.getChannelData(0);
+      const d1 = buf.getChannelData(1);
+      for (let i = 0; i < d0.length; i++) {
+        const v = Math.max(Math.abs(d0[i]), Math.abs(d1[i]));
+        if (onset < 0 && v > 0.003) onset = i;
+        if (v > peak) {
+          peak = v;
+          peakAt = i;
         }
+        sum += d0[i] * d0[i] + d1[i] * d1[i];
       }
-      return { wav: wavBase64(buf), peak, rms: Math.sqrt(sum / (buf.length * 2)) };
+      // peak level in a 2 ms window 20 ms after the peak, relative to the peak
+      let late = 0;
+      for (let i = peakAt + 960; i < Math.min(d0.length, peakAt + 1056); i++) late = Math.max(late, Math.abs(d0[i]), Math.abs(d1[i]));
+      return {
+        wav: wavBase64(buf),
+        peak,
+        rms: Math.sqrt(sum / (buf.length * 2)),
+        attackMs: ((peakAt - Math.max(0, onset)) / 48000) * 1000,
+        drop20ms: 20 * Math.log10(Math.max(1e-6, late) / peak),
+      };
     },
   };
 }
