@@ -1,5 +1,6 @@
 import { HalfFloatType, type PerspectiveCamera, type Scene, type WebGLRenderer } from 'three';
 import { GradeEffect } from './gradeEffect';
+import { installPerf } from '../core/perf';
 import {
   BlendFunction,
   BloomEffect,
@@ -37,5 +38,7 @@ export function createPost(renderer: WebGLRenderer, scene: Scene, camera: Perspe
   composer.addPass(new EffectPass(camera, ca, noise));
   composer.addPass(new EffectPass(camera, new SMAAEffect()));
 
-  return { composer, bloom, toneMapping, grade, vignette, noise, ca };
+  const perf = installPerf(renderer, scene, camera, composer);
+
+  return { composer, perf, bloom, toneMapping, grade, vignette, noise, ca };
 }
