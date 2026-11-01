@@ -109,8 +109,8 @@ function fracture(job: FractureJob): FractureResult {
   const power = 1 + job.fill * 0.6;
 
   // crush zone
-  for (let i = 0; i < 6; i++) {
-    const ang = rng() * Math.PI * 2, rr = 0.0012 + rng() * 0.003;
+  for (let i = 0; i < 12; i++) {
+    const ang = rng() * Math.PI * 2, rr = 0.001 + rng() * 0.004;
     push(uh + Math.cos(ang) * rr, yh + Math.sin(ang) * rr);
   }
   // radial rays + concentric rings
@@ -126,7 +126,8 @@ function fracture(job: FractureJob): FractureResult {
       }
     }
   };
-  rays(uh, yh, 11 + Math.floor(rng() * 4), 0.006, 0.12 * power, 1.6, 0.55);
+  rays(uh, yh, 15 + Math.floor(rng() * 5), 0.0045, 0.035, 1.45, 1);
+  rays(uh, yh, 6 + Math.floor(rng() * 3), 0.04, 0.13 * power, 2.1, 0.5);
   if (!isNaN(ue)) rays(ue, ye, 6 + Math.floor(rng() * 3), 0.007, 0.07 * power, 1.75, 0.5);
   // sparse far seeds; labels hold glass together
   for (let i = 0, tries = 0; i < 14 && tries < 200; tries++) {
@@ -180,6 +181,14 @@ function fracture(job: FractureJob): FractureResult {
   }
   for (let i = 0; i < nBody; i++) {
     const u = seeds[i * 2], y = seeds[i * 2 + 1];
+    const far = surfDist(u, y, uh, yh) > 0.07 && (isNaN(ue) || surfDist(u, y, ue, ye) > 0.05);
+    if (far) {
+      for (const jc of vor.neighbors(N + i)) {
+        const j = seedOf(jc);
+        if (j >= nBody || j === i) continue;
+        if (surfDist(seeds[j * 2], seeds[j * 2 + 1], uh, yh) > 0.07 && rng() < 0.35) unite(i, j);
+      }
+    }
     if (!inLabel(u, y) || surfDist(u, y, uh, yh) < 0.04) continue;
     for (const jc of vor.neighbors(N + i)) {
       const j = seedOf(jc);
@@ -218,18 +227,7 @@ function fracture(job: FractureJob): FractureResult {
   const STEP = 0.0055;
   let prevC: number[] | null = null;
 
-  const labelUV = (u: number, y: number) => {
-    const out = [-1, -1, -1, -1];
-    const th = u / R0;
-    job.labels.forEach((L, k) => {
-      if (k > 1) return;
-      let rel = (((th - L[2]) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
-      if (rel > L[3] + (2 * Math.PI - L[3]) / 2) rel -= 2 * Math.PI;
-      out[k * 2] = rel / L[3];
-      out[k * 2 + 1] = (y - L[0]) / (L[1] - L[0]);
-    });
-    return out;
-  };
+  const labelUV = (u: number, y: number) => [u / R0, y, 1, 0];
   const surfNormal = (u: number, y: number, inner: boolean) => {
     const e = 0.0004;
     tmp.length = 0;
@@ -256,7 +254,7 @@ function fracture(job: FractureJob): FractureResult {
     luv.push(uv[0], uv[1], uv[2], uv[3]);
     return vBase++;
   };
-  const NOUV = [-1, -1, -1, -1];
+  const NOUV = [0, 0, 0, 0];
   const tri = (a: number, b: number, c: number, rx: number, ry: number, rz: number) => {
     const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
     const ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az;
@@ -295,7 +293,7 @@ function fracture(job: FractureJob): FractureResult {
               surf(u, y, inner, tmp);
               const nn = surfNormal(u, y, inner);
               const [x0, y0, z0] = [tmp[0], tmp[1], tmp[2]];
-              row.push(addV(x0, y0, z0, nn, p, inner ? 0.5 : 0, inner ? NOUV : labelUV(u, y)));
+              row.push(addV(x0, y0, z0, nn, p, isBase ? 2 : inner ? 0.5 : 0, inner ? NOUV : labelUV(u, y)));
             }
             grid.push(row);
           }
@@ -370,12 +368,12 @@ function fracture(job: FractureJob): FractureResult {
       // outer floor and inner floor discs
       for (const [y, inner] of [[0.0015, false], [pr.floorY, true]] as [number, boolean][]) {
         const segs = 36;
-        const c = addV(0, y + (inner ? 0.0015 : 0.003), 0, [0, inner ? 1 : -1, 0], p, inner ? 0.5 : 0, NOUV);
+        const c = addV(0, y + (inner ? 0.0015 : 0.003), 0, [0, inner ? 1 : -1, 0], p, 2, NOUV);
         const ringI: number[] = [];
         for (let s = 0; s < segs; s++) {
           const th = (s / segs) * Math.PI * 2;
           const r = inner ? rIn(th, y) : rOut(th, 0.0045) * 0.97;
-          ringI.push(addV(r * Math.sin(th), y, r * Math.cos(th), [0, inner ? 1 : -1, 0], p, inner ? 0.5 : 0, NOUV));
+          ringI.push(addV(r * Math.sin(th), y, r * Math.cos(th), [0, inner ? 1 : -1, 0], p, 2, NOUV));
         }
         for (let s = 0; s < segs; s++) tri(c, ringI[s], ringI[(s + 1) % segs], 0, inner ? 1 : -1, 0);
       }
@@ -394,6 +392,7 @@ function fracture(job: FractureJob): FractureResult {
       pos[v * 3] -= mx; pos[v * 3 + 1] -= my; pos[v * 3 + 2] -= mz;
       rad = Math.max(rad, Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]));
     }
+    for (let v = v0; v < vBase; v++) luv[v * 4 + 3] = area;
     const samples: number[] = [];
     for (let k = 0; k < 8; k++) {
       const sx = k & 1 ? 1 : -1, sy = k & 2 ? 1 : -1, sz = k & 4 ? 1 : -1;
@@ -413,7 +412,7 @@ function fracture(job: FractureJob): FractureResult {
     const l = Math.hypot(nrm[i], nrm[i + 1], nrm[i + 2]);
     if (!Number.isFinite(l) || l < 1e-6) { nrm[i] = 0; nrm[i + 1] = 1; nrm[i + 2] = 0; }
   }
-  for (let i = 0; i < luv.length; i++) if (!Number.isFinite(luv[i])) luv[i] = -1;
+  for (let i = 0; i < luv.length; i++) if (!Number.isFinite(luv[i])) luv[i] = 0;
   for (let i = 0; i < meta.length; i++) if (!Number.isFinite(meta[i])) meta[i] = 0;
   for (let i = 0; i < crack.length; i++) if (!Number.isFinite(crack[i])) crack[i] = 0;
   for (let i = 0; i < crackD.length; i++) if (!Number.isFinite(crackD[i])) crackD[i] = 1;
@@ -440,6 +439,7 @@ self.onmessage = (e: MessageEvent) => {
   }
   const t0 = performance.now();
   const r = fracture(m.job as FractureJob);
+  r.key = m.key;
   r.ms = performance.now() - t0;
   (self as unknown as Worker).postMessage(r, [r.pos.buffer, r.nrm.buffer, r.sid.buffer, r.edge.buffer, r.luv.buffer, r.index.buffer, r.meta.buffer, r.crack.buffer, r.crackD.buffer]);
 };

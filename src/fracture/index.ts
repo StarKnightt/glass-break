@@ -40,8 +40,9 @@ export type ShardImpactFn = (position: Vector3, speed: number, size: number) => 
 const MAXP = 256;
 const BREAK_SLOTS = 12;
 const TRANS_SLOTS = 8;
-const GLITTER = 1200;
-const CRACK_TIME = 0.045;
+const GLITTER = 2600;
+const CRACK_TIME = 0.012;
+const MAX_AWAKE = 320;
 const G = 9.81;
 
 const LABELS: Record<BottleType, LabelBand[]> = {
@@ -71,7 +72,7 @@ interface Break {
   nrmW: Vector3;
   // physics
   p: Float32Array; q: Float32Array; v: Float32Array; w: Float32Array;
-  rad: Float32Array; invI: Float32Array; still: Float32Array; awake: Uint8Array; samp: Float32Array;
+  rad: Float32Array; invI: Float32Array; delay: Float32Array; surfY: Float32Array; still: Float32Array; awake: Uint8Array; samp: Float32Array;
   meta: Float32Array | null;
   awakeCount: number;
   hitW: Vector3; dirW: Vector3; hitL: Vector3;
@@ -133,7 +134,7 @@ export function createFracture(world: World, bottles: BottleSystem) {
     slots.push({
       bottle: null as unknown as Bottle, state: 'burst', t: 0, jobId: -1, n: 0, mesh, uni, tex, data, geo: null, lines: null, crush: null, nrmW: new Vector3(),
       p: new Float32Array(MAXP * 3), q: new Float32Array(MAXP * 4), v: new Float32Array(MAXP * 3), w: new Float32Array(MAXP * 3),
-      rad: new Float32Array(MAXP), invI: new Float32Array(MAXP), still: new Float32Array(MAXP), awake: new Uint8Array(MAXP),
+      rad: new Float32Array(MAXP), invI: new Float32Array(MAXP), delay: new Float32Array(MAXP), surfY: new Float32Array(MAXP), still: new Float32Array(MAXP), awake: new Uint8Array(MAXP),
       samp: new Float32Array(MAXP * 24), meta: null, awakeCount: 0,
       hitW: new Vector3(), dirW: new Vector3(), hitL: new Vector3(), matW: new Matrix4(), quatW: new Quaternion(),
       cap: null, neck: -1, order: -1,
@@ -168,13 +169,14 @@ export function createFracture(world: World, bottles: BottleSystem) {
   glitter.name = 'glassGlitter';
   scene.add(glitter);
   const gP = new Float32Array(GLITTER * 3), gV = new Float32Array(GLITTER * 3), gQ = new Float32Array(GLITTER * 4), gW = new Float32Array(GLITTER * 3);
+  const gD = new Float32Array(GLITTER);
   const gS = new Float32Array(GLITTER), gAwake = new Uint8Array(GLITTER);
   let gNext = 0, gAwakeN = 0;
 
   const crackMat = new ShaderMaterial({
-    uniforms: { uR: { value: 0 } },
     vertexShader: `attribute float d; varying float vD; void main(){ vD = d; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-    fragmentShader: `uniform float uR; varying float vD; void main(){ if (vD > uR) discard; float k = 0.35 + 0.65 * exp(-vD / 0.025); gl_FragColor = vec4(vec3(1.6, 1.7, 1.7) * k, 1.0); }`,
+    uniforms: { uR: { value: 0 }, uF: { value: 1 } },
+    fragmentShader: `uniform float uR, uF; varying float vD; void main(){ if (vD > uR || vD > 0.055) discard; float k = exp(-vD / 0.018) * uF; gl_FragColor = vec4(vec3(1.3, 1.4, 1.35) * k, 1.0); }`,
     blending: AdditiveBlending,
     transparent: true,
     depthWrite: false,
@@ -189,16 +191,12 @@ export function createFracture(world: World, bottles: BottleSystem) {
     depthWrite: false,
   });
 
-  let jobId = 0;
   const pending = new Map<number, Break>();
 
   worker.onmessage = (e: MessageEvent<FractureResult>) => {
     const r = e.data;
-    const br = pending.get(r.id);
-    pending.delete(r.id);
-    if (!br || br.jobId !== r.id) return;
     lastWorkerMs = r.ms ?? 0;
-    setup(br, r);
+    if (r.key) patterns.set(r.key, r);
   };
   let lastWorkerMs = 0;
 
@@ -238,38 +236,58 @@ export function createFracture(world: World, bottles: BottleSystem) {
   }
 
   const tv = new Vector3();
+  const HEIGHTS = [0.2, 0.34, 0.48, 0.62, 0.76];
+  const patterns = new Map<string, FractureResult | null>();
+  const heightOf = new Map<string, number>();
+  for (const t of tables) heightOf.set(t.type, t.height);
+  function requestPattern(type: string, k: number) {
+    const key = `${type}:${k}`;
+    patterns.set(key, null);
+    const job: FractureJob = {
+      id: -1, type, theta: 0, y: heightOf.get(type)! * HEIGHTS[k], dir: [0, 0, -1], fill: 0.5,
+      seed: (Math.random() * 1e9) | 0, labels: [],
+    };
+    worker.postMessage({ kind: 'job', key, job });
+  }
+  for (const t of tables) HEIGHTS.forEach((_, k) => requestPattern(t.type, k));
+
+  const qY = new Quaternion(), mY = new Matrix4();
   function shatter(bottle: Bottle, hitPoint: Vector3, hitNormal: Vector3, bulletDir: Vector3) {
     if (!bottle.alive) return;
+    bottle.group.updateMatrixWorld(true);
+    const hitL = bottle.group.worldToLocal(hitPoint.clone());
+    const H = bottle.profile.height;
+    let best = -1, bestD = 1e9;
+    HEIGHTS.forEach((f, k) => {
+      const d = Math.abs(f * H - hitL.y);
+      if (patterns.get(`${bottle.type}:${k}`) && d < bestD) { bestD = d; best = k; }
+    });
+    for (const fn of crackFns) fn(bottle, hitPoint, bulletDir);
+    if (best < 0) {
+      bottle.remove();
+      for (const fn of shatterFns) fn(bottle, hitPoint, bulletDir);
+      return;
+    }
+    const key = `${bottle.type}:${best}`;
+    const r = patterns.get(key)!;
+    requestPattern(bottle.type, best);
     bottle.alive = false;
     const br = takeSlot();
     br.bottle = bottle;
-    br.state = 'pending';
-    br.t = 0;
     br.order = orderCounter++;
-    bottle.group.updateMatrixWorld(true);
-    br.matW.copy(bottle.group.matrixWorld);
-    bottle.group.getWorldQuaternion(br.quatW);
+    const phi = Math.atan2(hitL.x, hitL.z);
+    mY.makeRotationY(phi);
+    qY.setFromAxisAngle(up, phi);
+    br.matW.copy(bottle.group.matrixWorld).multiply(mY);
+    bottle.group.getWorldQuaternion(br.quatW).multiply(qY);
     br.hitW.copy(hitPoint);
     br.dirW.copy(bulletDir).normalize();
     br.nrmW.copy(hitNormal).normalize();
-    br.hitL.copy(hitPoint);
-    bottle.group.worldToLocal(br.hitL);
-    tv.copy(br.dirW).applyQuaternion(br.quatW.clone().invert());
-    const id = ++jobId;
-    br.jobId = id;
-    pending.set(id, br);
-    const job: FractureJob = {
-      id,
-      type: bottle.type,
-      theta: Math.atan2(br.hitL.x, br.hitL.z),
-      y: Math.min(bottle.profile.height - 0.004, Math.max(0.003, br.hitL.y)),
-      dir: [tv.x, tv.y, tv.z],
-      fill: bottle.fill,
-      seed: (Math.random() * 1e9) | 0,
-      labels: LABELS[bottle.type],
-    };
-    worker.postMessage({ kind: 'job', job });
-    for (const fn of crackFns) fn(bottle, hitPoint, bulletDir);
+    const py = HEIGHTS[best] * H;
+    br.hitL.set(0, py, bottle.profile.outerR(py));
+    br.uni.uRot.value = phi;
+    setup(br, r);
+    burst(br);
   }
 
   function setup(br: Break, r: FractureResult) {
@@ -286,21 +304,22 @@ export function createFracture(world: World, bottles: BottleSystem) {
     br.n = Math.min(MAXP, r.pieces);
     const b = br.bottle;
     const u = br.uni;
-    const tint = b.tint;
-    u.uTint.value.copy(tint);
+    u.uTint.value.copy(b.tint);
     const labelMats = b.meshes.labels.map((l) => (l.material as MeshStandardMaterial).map as Texture | null);
+    const bands = LABELS[b.type];
     u.uLabelA.value = labelMats[0] ?? null;
     u.uLabelB.value = labelMats[1] ?? null;
-    u.uHasB.value = labelMats[1] ? 1 : 0;
+    u.uHasB.value = labelMats[1] && bands[1] ? 1 : 0;
+    if (bands[0]) u.uLabA.value.set(bands[0][0], bands[0][1], bands[0][2], bands[0][3]);
+    if (bands[1]) u.uLabB.value.set(bands[1][0], bands[1][1], bands[1][2], bands[1][3]);
     const cm = br.mesh.material as MeshStandardMaterial;
-    cm.color.copy(tint).lerp(new Color(1, 1, 1), 0.15);
+    cm.color.copy(b.tint).lerp(new Color(1, 1, 1), 0.3);
 
-    // crack lines
+    // brief cracks around the impact (visible in slow-mo only)
     const lg = new BufferGeometry();
-    lg.setAttribute('position', new BufferAttribute(r.crack, 3));
-    lg.setAttribute('d', new BufferAttribute(r.crackD, 1));
-    const mat = crackMat.clone();
-    const lines = new LineSegments(lg, mat);
+    lg.setAttribute('position', new BufferAttribute(r.crack.slice(), 3));
+    lg.setAttribute('d', new BufferAttribute(r.crackD.slice(), 1));
+    const lines = new LineSegments(lg, crackMat.clone());
     lines.matrixAutoUpdate = false;
     lines.matrix.copy(br.matW);
     lines.matrixWorld.copy(br.matW);
@@ -308,25 +327,27 @@ export function createFracture(world: World, bottles: BottleSystem) {
     lines.renderOrder = 5;
     scene.add(lines);
     br.lines = lines;
-    const crush = new Mesh(crushGeo, crushMat);
+    const crush = new Mesh(crushGeo, crushMat.clone());
     crush.position.copy(br.hitW).addScaledVector(br.nrmW, 0.0008);
     crush.lookAt(tv.copy(crush.position).add(br.nrmW));
     crush.renderOrder = 6;
     scene.add(crush);
     br.crush = crush;
-    let maxD = 0;
-    for (let i = 0; i < r.crackD.length; i++) maxD = Math.max(maxD, r.crackD[i]);
-    (lines.userData as { maxD: number }).maxD = maxD;
-    br.state = 'crack';
     br.t = 0;
   }
 
   const up = new Vector3(0, 1, 0);
-  const c = new Vector3(), radial = new Vector3(), vel = new Vector3(), rnd = new Vector3();
+  const c = new Vector3(), radial = new Vector3(), vel = new Vector3(), rnd = new Vector3(), side = new Vector3();
   const qTmp = new Quaternion();
   function randUnit(o: Vector3) {
     const z = Math.random() * 2 - 1, a = Math.random() * Math.PI * 2, s = Math.sqrt(1 - z * z);
     return o.set(s * Math.cos(a), z, s * Math.sin(a));
+  }
+  /** Random direction within a cone of half-angle `ang` around `axis`. */
+  function cone(o: Vector3, axis: Vector3, ang: number) {
+    randUnit(o);
+    o.addScaledVector(axis, -o.dot(axis)).normalize().multiplyScalar(Math.tan(ang) * Math.sqrt(Math.random()));
+    return o.add(axis).normalize();
   }
 
   function burst(br: Break) {
@@ -335,12 +356,12 @@ export function createFracture(world: World, bottles: BottleSystem) {
     b.remove();
     br.state = 'burst';
     br.mesh.visible = true;
-    if (br.lines) br.lines.visible = false;
-    if (br.crush) br.crush.visible = false;
-    const power = 1 + b.fill * 0.8;
+    const power = 1 + b.fill * 0.7;
     const qw = br.quatW;
+    const dir = br.dirW;
     br.awakeCount = 0;
     br.neck = -1;
+    side.crossVectors(dir, up).normalize();
     const areas: [number, number][] = [];
     for (let i = 0; i < br.n; i++) {
       const o = i * META;
@@ -348,35 +369,57 @@ export function createFracture(world: World, bottles: BottleSystem) {
       const rad = Math.max(0.0015, meta[o + 3]);
       const flags = meta[o + 5];
       const d = c.distanceTo(br.hitL);
-      const near = Math.exp(-d / 0.04);
+      const near = Math.exp(-d / 0.035);
       radial.set(c.x, 0, c.z).normalize().applyQuaternion(qw);
-      const dot = radial.dot(br.dirW);
+      const dot = radial.dot(dir);
+      const r1 = Math.random();
+      let spin = 4 + 26 * (1 - Math.min(1, rad / 0.03)) * (0.4 + 0.6 * Math.random());
       if (flags & 1) {
-        vel.copy(br.dirW).multiplyScalar(1.2 + Math.random()).addScaledVector(up, 0.8 + Math.random() * 1.2).addScaledVector(randUnit(rnd), 0.4);
+        // neck: carried along the bullet path, tips over
+        vel.copy(dir).multiplyScalar(0.4 + 0.6 * r1).addScaledVector(radial, 0.15).addScaledVector(up, 0.1 + 0.35 * Math.random());
         br.neck = i;
+        rnd.copy(side).multiplyScalar((Math.random() < 0.5 ? -1 : 1) * (5 + 6 * Math.random())).addScaledVector(randUnit(c.clone()), 1.5);
       } else if (flags & 2) {
-        vel.copy(br.dirW).multiplyScalar(0.3 + Math.random() * 0.4).addScaledVector(up, 0.25);
+        vel.copy(dir).multiplyScalar(0.1 + 0.15 * r1);
+        spin = 0.6;
+        randUnit(rnd).multiplyScalar(spin);
+      } else if (near < 0.2 && r1 < 0.4) {
+        // far pieces lose their support and slump onto the rail
+        vel.copy(radial).multiplyScalar(0.03 + 0.15 * Math.random()).addScaledVector(dir, 0.05);
+      } else if (dot > 0.25) {
+        // exit side jet
+        cone(vel, dir, 0.6).multiplyScalar((0.8 + 3.5 * dot * (0.3 + near)) * power * (0.6 + 0.6 * r1));
+        vel.addScaledVector(radial, 0.4);
+      } else if (dot < -0.25 && near > 0.3 && r1 < 0.4) {
+        // entry spall back toward the shooter, falling just in front of the fence
+        cone(vel, tv.copy(dir).negate(), 0.8).multiplyScalar((0.4 + 1.3 * near) * (0.6 + 0.7 * Math.random()));
+        vel.addScaledVector(radial, 0.2);
+      } else if (dot < -0.25 && near > 0.3) {
+        // driven through the bottle with the bullet
+        cone(vel, dir, 0.55).multiplyScalar((1.2 + 2.5 * near) * power * (0.6 + 0.6 * Math.random()));
+      } else if (r1 < 0.55) {
+        // drops onto the rail
+        vel.copy(radial).multiplyScalar(0.03 + 0.15 * Math.random()).addScaledVector(dir, 0.05);
       } else {
-        vel.copy(radial).multiplyScalar((0.35 + 2.4 * near) * power + 0.35 * Math.random());
-        vel.addScaledVector(br.dirW, (0.3 + 4.0 * Math.max(0, dot) * (0.25 + near)) * power);
-        if (dot < -0.2) vel.addScaledVector(radial, 1.3 * near);
-        vel.addScaledVector(up, 0.1 + Math.random() * 0.5).addScaledVector(randUnit(rnd), 0.5 * power);
+        vel.copy(radial).multiplyScalar((0.5 + 1.4 * near + 0.5 * Math.random()) * power).addScaledVector(dir, 0.5);
       }
-      c.applyMatrix4(br.matW);
+      if (!(flags & 3)) vel.y += -0.1 + 0.5 * Math.random();
+      if (!(flags & 1) && !(flags & 2)) randUnit(rnd).multiplyScalar(spin);
+      c.set(meta[o], meta[o + 1], meta[o + 2]).applyMatrix4(br.matW);
       br.p[i * 3] = c.x; br.p[i * 3 + 1] = c.y; br.p[i * 3 + 2] = c.z;
       br.v[i * 3] = vel.x; br.v[i * 3 + 1] = vel.y; br.v[i * 3 + 2] = vel.z;
       br.q[i * 4] = qw.x; br.q[i * 4 + 1] = qw.y; br.q[i * 4 + 2] = qw.z; br.q[i * 4 + 3] = qw.w;
-      const spin = flags & 2 ? 1.5 : flags & 1 ? 4 + Math.random() * 5 : 5 + 28 * (1 - Math.min(1, rad / 0.035)) * Math.random() + 3;
-      randUnit(rnd).multiplyScalar(spin);
       br.w[i * 3] = rnd.x; br.w[i * 3 + 1] = rnd.y; br.w[i * 3 + 2] = rnd.z;
       br.rad[i] = rad;
       br.invI[i] = 1 / (0.3 * rad * rad);
       br.still[i] = 0;
+      br.delay[i] = flags & 2 ? 0.03 : Math.max(0, d - 0.008) * 0.18;
+      br.surfY[i] = -1;
       br.awake[i] = meta[o + 7] > 0 ? 1 : 0;
       br.awakeCount += br.awake[i];
       for (let k = 0; k < 24; k++) br.samp[i * 24 + k] = meta[o + 8 + k];
       br.data[i * 8 + 3] = 1;
-      areas.push([meta[o + 4] * (flags & 3 ? 3 : 1), i]);
+      if (!(flags & 2)) areas.push([meta[o + 4] * (flags & 1 ? 3 : 1), i]);
     }
     // transmissive: biggest pieces
     areas.sort((a, b2) => b2[0] - a[0]);
@@ -423,30 +466,48 @@ export function createFracture(world: World, bottles: BottleSystem) {
     for (const fn of shatterFns) fn(b, br.hitW, br.dirW);
   }
 
+  const white = new Color(1, 1, 1), gc = new Color();
   function spawnGlitter(br: Break, power: number) {
-    const n = Math.round(70 + 60 * power);
+    const n = Math.round(200 + 80 * power);
     const tint = br.bottle.tint;
+    const back = tv.copy(br.dirW).negate();
     for (let k = 0; k < n; k++) {
       const i = gNext;
       gNext = (gNext + 1) % GLITTER;
       if (glitter.count < GLITTER) glitter.count++;
+      const kind = Math.random();
       randUnit(rnd);
-      const exit = Math.random() < 0.55;
-      c.copy(br.hitW).addScaledVector(rnd, 0.012 + Math.random() * 0.01);
-      if (exit) c.addScaledVector(br.dirW, br.bottle.radius * 1.6);
+      c.copy(br.hitW).addScaledVector(rnd, Math.random() * 0.012);
+      if (kind < 0.5) {
+        // powder halo: tiny, slowed hard by air, hangs around the hit
+        randUnit(vel).multiplyScalar(0.4 + Math.random() * 1.6).addScaledVector(back, 0.6 + Math.random());
+        gD[i] = 5 + Math.random() * 5;
+        gS[i] = 0.0003 + Math.random() * 0.0006;
+        gc.copy(tint).lerp(white, 0.75);
+      } else if (kind < 0.8) {
+        // exit jet needles
+        c.addScaledVector(br.dirW, br.bottle.radius * (0.5 + Math.random()));
+        cone(vel, br.dirW, 0.55).multiplyScalar((2 + Math.random() * 4) * power);
+        gD[i] = 0.6;
+        gS[i] = 0.0008 + Math.pow(Math.random(), 2) * 0.004;
+        gc.copy(tint).lerp(white, 0.4);
+      } else {
+        // entry spall
+        cone(vel, back, 0.75).multiplyScalar(0.8 + Math.random() * 2.2);
+        gD[i] = 0.8;
+        gS[i] = 0.0008 + Math.pow(Math.random(), 2) * 0.003;
+        gc.copy(tint).lerp(white, 0.4);
+      }
+      vel.y += Math.random() * 0.4;
       gP[i * 3] = c.x; gP[i * 3 + 1] = c.y; gP[i * 3 + 2] = c.z;
-      randUnit(rnd);
-      vel.copy(br.dirW).multiplyScalar((exit ? 2 + Math.random() * 5 : -0.5 - Math.random() * 1.5) * power).addScaledVector(rnd, 1.5 + Math.random() * 2.5);
-      vel.y += Math.random() * 0.6;
       gV[i * 3] = vel.x; gV[i * 3 + 1] = vel.y; gV[i * 3 + 2] = vel.z;
       qTmp.setFromAxisAngle(randUnit(rnd), Math.random() * 6.28);
       gQ[i * 4] = qTmp.x; gQ[i * 4 + 1] = qTmp.y; gQ[i * 4 + 2] = qTmp.z; gQ[i * 4 + 3] = qTmp.w;
       randUnit(rnd).multiplyScalar(20 + Math.random() * 40);
       gW[i * 3] = rnd.x; gW[i * 3 + 1] = rnd.y; gW[i * 3 + 2] = rnd.z;
-      gS[i] = 0.0008 + Math.pow(Math.random(), 2) * 0.0035;
       if (!gAwake[i]) gAwakeN++;
       gAwake[i] = 1;
-      glitter.setColorAt(i, tint);
+      glitter.setColorAt(i, gc);
     }
     glitter.instanceColor!.needsUpdate = true;
   }
@@ -490,12 +551,14 @@ export function createFracture(world: World, bottles: BottleSystem) {
 
   /** Returns penetration depth and writes the contact normal, or 0. */
   const cn = [0, 0, 0];
+  let cSurf = 0;
   function collide(x: number, y: number, z: number): number {
-    if (y < 0) { cn[0] = 0; cn[1] = 1; cn[2] = 0; return -y; }
+    if (y < 0) { cn[0] = 0; cn[1] = 1; cn[2] = 0; cSurf = 0; return -y; }
     if (y < RAIL.y1 && y > RAIL.y0 - 0.01 && z > RAIL.z0 && z < RAIL.z1 && x > RAIL.x0 && x < RAIL.x1) {
       const dTop = RAIL.y1 - y, dF = RAIL.z1 - z, dB = z - RAIL.z0, dBot = y - RAIL.y0 + 0.01;
       const m = Math.min(dTop, dF, dB, dBot);
       cn[0] = 0; cn[1] = m === dTop ? 1 : m === dBot ? -1 : 0; cn[2] = m === dF ? 1 : m === dB ? -1 : 0;
+      cSurf = RAIL.y1;
       return m;
     }
     if (y < RAIL.y0 && z > -0.065 && z < 0.065) {
@@ -516,6 +579,10 @@ export function createFracture(world: World, bottles: BottleSystem) {
     const { p, q, v, w, samp } = br;
     for (let i = 0; i < br.n; i++) {
       if (!br.awake[i]) continue;
+      if (br.delay[i] > 0) {
+        br.delay[i] -= h;
+        continue;
+      }
       const i3 = i * 3, i4 = i * 4;
       const rad = br.rad[i];
       const drag = 0.04 + 0.0006 / rad;
@@ -546,6 +613,7 @@ export function createFracture(world: World, bottles: BottleSystem) {
           if (depth <= 0) continue;
           contact = true;
           const cx = cn[0], cy = cn[1], cz = cn[2];
+          if (cy > 0.5) br.surfY[i] = cSurf;
           // velocity at contact point
           let vpx = v[i3] + (w[i3 + 1] * rz - w[i3 + 2] * ry);
           let vpy = v[i3 + 1] + (w[i3 + 2] * rx - w[i3] * rz);
@@ -591,6 +659,7 @@ export function createFracture(world: World, bottles: BottleSystem) {
         if (br.still[i] > 0.15) {
           br.awake[i] = 0;
           br.awakeCount--;
+          if (br.surfY[i] >= 0) layFlat(br, i);
           v[i3] = v[i3 + 1] = v[i3 + 2] = 0;
           w[i3] = w[i3 + 1] = w[i3 + 2] = 0;
         }
@@ -602,6 +671,28 @@ export function createFracture(world: World, bottles: BottleSystem) {
     }
   }
 
+  const fa = new Vector3(), fb = new Vector3(), fq = new Quaternion(), fq2 = new Quaternion();
+  /** Settle a resting plate onto its widest face with a little random tilt so some catch the sun. */
+  function layFlat(br: Break, i: number) {
+    const m = br.meta!;
+    const o = i * META;
+    if (m[o + 5] & 2) return;
+    fq.set(br.q[i * 4], br.q[i * 4 + 1], br.q[i * 4 + 2], br.q[i * 4 + 3]);
+    fa.set(m[o], 0, m[o + 2]);
+    if (fa.lengthSq() < 1e-10) return;
+    fa.normalize().applyQuaternion(fq);
+    fb.set((Math.random() - 0.5) * 0.3, fa.y >= 0 ? 1 : -1, (Math.random() - 0.5) * 0.3).normalize();
+    fq2.setFromUnitVectors(fa, fb);
+    fq.premultiply(fq2);
+    br.q[i * 4] = fq.x; br.q[i * 4 + 1] = fq.y; br.q[i * 4 + 2] = fq.z; br.q[i * 4 + 3] = fq.w;
+    let minY = 1e9;
+    for (let k = 0; k < 8; k++) {
+      fa.set(br.samp[i * 24 + k * 3], br.samp[i * 24 + k * 3 + 1], br.samp[i * 24 + k * 3 + 2]).applyQuaternion(fq);
+      minY = Math.min(minY, fa.y);
+    }
+    br.p[i * 3 + 1] = br.surfY[i] - minY + 0.0003;
+  }
+
   const gm = new Matrix4(), gq = new Quaternion(), gs = new Vector3(), gp = new Vector3();
   function stepGlitter(dt: number) {
     if (gAwakeN === 0) return;
@@ -609,7 +700,7 @@ export function createFracture(world: World, bottles: BottleSystem) {
       if (!gAwake[i]) continue;
       const i3 = i * 3;
       gV[i3 + 1] -= G * dt;
-      const dk = 1 - 0.5 * dt;
+      const dk = Math.max(0, 1 - gD[i] * dt);
       gV[i3] *= dk; gV[i3 + 1] *= dk; gV[i3 + 2] *= dk;
       const py = gP[i3 + 1];
       gP[i3] += gV[i3] * dt; gP[i3 + 1] += gV[i3 + 1] * dt; gP[i3 + 2] += gV[i3 + 2] * dt;
@@ -649,25 +740,44 @@ export function createFracture(world: World, bottles: BottleSystem) {
     glitter.instanceMatrix.needsUpdate = true;
   }
 
+  /** Keep at most MAX_AWAKE moving shards: hide the smallest moving ones of the oldest breaks. */
+  function capAwake() {
+    let total = 0;
+    for (const s2 of slots) if (s2.order >= 0) total += s2.awakeCount;
+    if (total <= MAX_AWAKE) return;
+    const live = slots.filter((s2) => s2.order >= 0 && s2.awakeCount > 0).sort((a, b2) => a.order - b2.order);
+    for (const br of live) {
+      for (let i = 0; i < br.n && total > MAX_AWAKE; i++) {
+        if (!br.awake[i] || br.rad[i] > 0.006) continue;
+        br.awake[i] = 0;
+        br.awakeCount--;
+        total--;
+        br.data[i * 8 + 3] = 0;
+      }
+      if (total <= MAX_AWAKE) break;
+    }
+  }
+
   let simMs = 0;
   world.onUpdate((dt) => {
     const t0 = performance.now();
     for (const br of slots) {
       if (br.order < 0) continue;
-      if (br.state === 'crack') {
-        br.t += dt;
-        const lm = br.lines!.material as ShaderMaterial;
-        const maxD = (br.lines!.userData as { maxD: number }).maxD;
-        lm.uniforms.uR.value = maxD * Math.pow(Math.min(1, br.t / CRACK_TIME), 0.8) + 0.002;
-        if (br.t >= CRACK_TIME) burst(br);
-        continue;
+      br.t += dt;
+      if (br.lines?.visible) {
+        const lm = br.lines.material as ShaderMaterial;
+        lm.uniforms.uR.value = 0.06 * Math.min(1, br.t / CRACK_TIME);
+        lm.uniforms.uF.value = 1 - Math.min(1, Math.max(0, (br.t - CRACK_TIME) / 0.012));
+        if (br.t > CRACK_TIME + 0.012) br.lines.visible = false;
       }
-      if (br.state !== 'burst' || br.awakeCount <= 0 || dt <= 0) continue;
+      if (br.crush?.visible && br.t > 0.02) br.crush.visible = false;
+      if (br.awakeCount <= 0 || dt <= 0) continue;
       const n = Math.min(8, Math.max(1, Math.ceil(dt / (1 / 200))));
       const h = dt / n;
       for (let s = 0; s < n; s++) stepBreak(br, h);
       writeTex(br);
     }
+    capAwake();
     if (dt > 0) {
       const n = Math.min(4, Math.max(1, Math.ceil(dt / (1 / 120))));
       for (let s = 0; s < n; s++) stepGlitter(dt / n);

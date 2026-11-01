@@ -39,6 +39,7 @@ export interface FractureResult {
   crack: Float32Array;
   crackD: Float32Array;
   ms?: number;
+  key?: string;
 }
 
 export const META = 32;
