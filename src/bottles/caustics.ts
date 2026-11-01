@@ -1,4 +1,4 @@
-import { AdditiveBlending, Color, Mesh, PlaneGeometry, ShaderMaterial, Vector3 } from 'three';
+import { AdditiveBlending, CanvasTexture, Color, Mesh, MeshBasicMaterial, PlaneGeometry, ShaderMaterial, Vector3 } from 'three';
 
 const geo = new PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0, 0, 0.5); // z: 0 → 1 along the shadow
 
@@ -18,26 +18,29 @@ export function createCaustic(tint: Color, radius: number, height: number, sunDi
       uTime: { value: 0 },
       uRailZ: { value: railZ },
       uFill: { value: 0 },
+      uLen: { value: len },
+      uR: { value: radius },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv; varying vec3 vW;
       void main(){ vUv = uv; vec4 w = modelMatrix * vec4(position,1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uTint; uniform float uStrength, uTime, uFill; uniform vec2 uRailZ;
+      uniform vec3 uTint; uniform float uStrength, uTime, uFill, uLen, uR; uniform vec2 uRailZ;
       varying vec2 vUv; varying vec3 vW;
       void main(){
-        float x = vUv.x * 2.0 - 1.0;   // across the shadow
+        float x = vUv.x * 2.0 - 1.0;   // across the shadow, ±1 = bottle radius
         float s = 1.0 - vUv.y;          // 0 at bottle base, 1 at the neck tip of the shadow
-        // shadow silhouette width: body then neck
+        float d = s * uLen / uR;        // distance from the base center in bottle radii
         float w = mix(1.0, 0.36, smoothstep(0.5, 0.72, s));
-        float body = smoothstep(w, w * 0.6, abs(x)) * smoothstep(0.0, 0.05, s) * smoothstep(1.0, 0.9, s);
-        // lens focus: bright line pinched toward the axis, plus wavy filaments
-        float focusLine = exp(-pow((abs(x) - 0.12 * w) / (0.07 * w), 2.0)) * smoothstep(0.05, 0.2, s) * smoothstep(0.62, 0.4, s);
-        float core = exp(-pow(x / 0.22, 2.0) - pow((s - 0.3) / 0.12, 2.0));
-        float wav = 0.5 + 0.5 * sin(x * 22.0 + sin(s * 31.0 + uTime * 0.6) * 1.6 + s * 9.0);
-        wav = pow(wav, 6.0) * body * 0.9;
-        float liquidBoost = 1.0 + uFill * 0.8;
-        vec3 c = uTint * (body * 0.22 + wav * 0.55 + focusLine * 1.2 * liquidBoost + core * 1.6 * liquidBoost);
+        float body = smoothstep(w, w * 0.55, abs(x)) * smoothstep(0.9, 1.3, d) * smoothstep(1.0, 0.9, s);
+        // the thick base + body act as a cylindrical lens: a bright crescent just outside the
+        // footprint, then a focused line down the shadow axis with wavy filaments
+        float crescent = exp(-pow((d - 1.25 - 0.25 * x * x) / 0.16, 2.0)) * smoothstep(0.95, 0.3, abs(x));
+        float focusLine = exp(-pow(x / 0.09, 2.0)) * smoothstep(1.1, 1.8, d) * smoothstep(0.6, 0.35, s);
+        float wav = 0.5 + 0.5 * sin(x * 19.0 + sin(d * 3.1 + uTime * 0.5) * 1.7 + d * 1.3);
+        wav = pow(wav, 8.0) * body;
+        float liquidBoost = 1.0 + uFill * 1.2;
+        vec3 c = uTint * (body * 0.07 + wav * 0.35 + (focusLine * 0.9 + crescent * 1.1) * liquidBoost);
         float clip = smoothstep(uRailZ.x, uRailZ.x + 0.01, vW.z) * smoothstep(uRailZ.y, uRailZ.y - 0.01, vW.z);
         gl_FragColor = vec4(c * uStrength * clip, 1.0);
       }`,
@@ -56,4 +59,30 @@ export function createCaustic(tint: Color, radius: number, height: number, sunDi
   mesh.renderOrder = 2;
   mesh.name = 'caustic';
   return mesh;
+}
+
+let aoTex: CanvasTexture | null = null;
+/** Soft contact darkening under a bottle base (the grazing sun leaves the rail top shadowless). */
+export function createContactShadow(radius: number) {
+  if (!aoTex) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(0,0,0,0.85)');
+    grd.addColorStop(0.42, 'rgba(0,0,0,0.75)');
+    grd.addColorStop(0.55, 'rgba(0,0,0,0.3)');
+    grd.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    aoTex = new CanvasTexture(c);
+  }
+  const m = new Mesh(
+    new PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+    new MeshBasicMaterial({ map: aoTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+  );
+  m.scale.set(radius * 3.4, 1, radius * 3.4);
+  m.position.y = 0.0008;
+  m.name = 'contactShadow';
+  return m;
 }

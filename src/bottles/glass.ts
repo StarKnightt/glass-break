@@ -33,7 +33,7 @@ export function createGlassMaterial(env: Texture | null, envRot: { x: number; y:
   const m = new MeshPhysicalMaterial({
     color: 0xffffff,
     metalness: 0,
-    roughness: 0.035,
+    roughness: 0.02,
     transmission: 1,
     ior: 1.52,
     thickness: 0.01,
@@ -72,19 +72,22 @@ uniform vec3 uSigmaGlass, uSigmaLiquid, uLiquidColor, uSunDir, uSunColor;`,
   float tLiq = 2.0 * uInnerR * gNoV * inLiq;
   vec3 optDepth = uSigmaGlass * tGlass + uSigmaLiquid * tLiq;
   // refraction offset: thin for hollow glass, lens-like through the liquid column
-  float tDisp = 0.004 + tLiq * 0.55;
-  vec3 effAtt = exp( - optDepth / tDisp );
-  effAtt = max( effAtt, vec3( 1e-4 ) );
+  float tDisp = 0.004 + 0.035 * ( 1.0 - gNoV ) * ( 1.0 - gNoV ) + tLiq * 0.55;
+  // three's attenuation: exp( log( c ) / d * len ), len ≈ tDisp → exp( -optDepth )
+  vec3 effAtt = max( exp( - optDepth ), vec3( 1e-6 ) );
   vec4 transmitted = getIBLVolumeRefraction(
     gN, gV, material.roughness, material.diffuseContribution, material.specularColorBlended, material.specularF90,
     gPos, modelMatrix, viewMatrix, projectionMatrix, material.dispersion, material.ior, tDisp,
-    effAtt, 1.0 );
+    effAtt, tDisp );
   material.transmissionAlpha = mix( material.transmissionAlpha, transmitted.a, material.transmission );
   totalDiffuse = mix( totalDiffuse, transmitted.rgb, material.transmission );
   // liquid: forward-scattered sun glow + a little wrapped sun light (fake subsurface)
   float fwd = pow( max( dot( -gV, uSunDir ), 0.0 ), 5.0 );
   float wrapL = max( dot( gN, uSunDir ) * 0.5 + 0.5, 0.0 );
-  totalDiffuse += uLiquidColor * uSunColor * inLiq * ( fwd * 0.9 + wrapL * 0.05 );
+  totalDiffuse += uLiquidColor * uSunColor * inLiq * ( fwd * 0.1 * ( 0.25 + 0.75 * gNoV * gNoV ) + wrapL * 0.012 );
+  // backlit rims: sun light refracted along the walls lights up the silhouettes in the glass color
+  float rim = pow( 1.0 - gNoV, 3.0 );
+  totalDiffuse += uSunColor * exp( - optDepth * 0.35 ) * rim * ( 0.08 + fwd * 0.6 );
   // meniscus: thin dark line with a bright rim just above it; beer gets a foam band
   float dy = gY - uFillY;
   float liqOn = step( 0.0001, uSigmaLiquid.r + uSigmaLiquid.g + uSigmaLiquid.b );

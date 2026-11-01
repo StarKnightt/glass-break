@@ -16,7 +16,7 @@ import type { World } from '../core/world';
 import { buildProfile, lathe, type BottleProfile, type BottleType } from './profiles';
 import { createGlassMaterial, sigmaFrom, type GlassUniforms } from './glass';
 import { createLabelTextures, LABEL_BRAND } from './labels';
-import { createCaustic } from './caustics';
+import { createCaustic, createContactShadow } from './caustics';
 
 export type { BottleType } from './profiles';
 
@@ -32,7 +32,7 @@ interface TypeLook {
 
 const LOOK: Record<BottleType, TypeLook> = {
   beer: {
-    glass: ['#1e6b2c', 0.02],
+    glass: ['#1e6b2c', 0.012],
     liquid: ['#d89a2a', 0.04],
     liquidGlow: '#ff9a2a',
     surface: '#d8c49a',
@@ -50,7 +50,7 @@ const LOOK: Record<BottleType, TypeLook> = {
     caustic: '#fffbe8',
   },
   whiskey: {
-    glass: ['#5a2a06', 0.018],
+    glass: ['#5a2a06', 0.03],
     liquid: ['#c8741e', 0.05],
     liquidGlow: '#ff8a1e',
     surface: '#5a2a0a',
@@ -279,6 +279,8 @@ export function createBottles(world: World) {
     const liquidSurface = new Mesh(pr.square ? discGeo.square : discGeo.round, surfMat);
     liquidSurface.name = 'liquidSurface';
     group.add(liquidSurface);
+
+    group.add(createContactShadow(pr.maxR * (pr.square ? 1.1 : 1)));
 
     const hit = new Mesh(hitGeo(type), hitMat);
     hit.name = 'bottleHit';
