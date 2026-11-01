@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Glass Break</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #fps {
+        position: fixed; top: 8px; left: 8px; z-index: 10;
+        font: 11px/1.3 ui-monospace, Menlo, Consolas, monospace;
+        color: #e8e2d4; background: rgba(0,0,0,0.45); padding: 4px 6px; border-radius: 3px;
+        pointer-events: none; white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // collected for automated checks
+      window.__errs = [];
+      addEventListener('error', (e) => __errs.push(String(e.message)));
+      addEventListener('unhandledrejection', (e) => __errs.push(String(e.reason)));
+      const ce = console.error.bind(console), cw = console.warn.bind(console);
+      console.error = (...a) => { __errs.push(a.map(String).join(' ')); ce(...a); };
+      console.warn = (...a) => { __errs.push('warn: ' + a.map(String).join(' ')); cw(...a); };
+    </script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
