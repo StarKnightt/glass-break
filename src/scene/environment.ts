@@ -53,7 +53,7 @@ function clampRadiance(tex: DataTexture, max: number) {
 export async function setupEnvironment(scene: Scene): Promise<EnvResult> {
   const hdr = (await new HDRLoader(loadingManager)
     .setDataType(FloatType)
-    .loadAsync('/hdri/rolling_hills_2k.hdr')) as DataTexture;
+    .loadAsync(`${import.meta.env.BASE_URL}hdri/rolling_hills_2k.hdr`)) as DataTexture;
   hdr.mapping = EquirectangularReflectionMapping;
   clampRadiance(hdr, HDR_CLAMP);
 

@@ -21,7 +21,7 @@ export interface PbrSet {
 export function loadPbr(renderer: WebGLRenderer, name: string, repeat = 1): PbrSet {
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const load = (suffix: string, srgb: boolean) => {
-    const t = loader.load(`/tex/${name}_${suffix}_2k.jpg`);
+    const t = loader.load(`${import.meta.env.BASE_URL}tex/${name}_${suffix}_2k.jpg`);
     t.colorSpace = srgb ? SRGBColorSpace : NoColorSpace;
     t.wrapS = t.wrapT = RepeatWrapping;
     t.repeat.set(repeat, repeat);

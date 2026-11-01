@@ -1,5 +1,7 @@
 # Glass Break
 
+**Play / Live demo:** https://starknightt.github.io/glass-break/
+
 ![Glass Break](og-image.png)
 
 Golden-hour backyard, a row of glass bottles on the fence — shoot them and watch the shatter drop into slow motion.
