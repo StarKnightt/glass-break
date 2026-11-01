@@ -5,6 +5,8 @@ import { createPost } from './fx/post';
 import { createDebugHud } from './core/debug';
 import type { UpdateFn, World } from './core/world';
 import { createBottles } from './bottles';
+import { createShooting } from './shooting';
+import { createHud } from './ui/hud';
 
 const MAX_PIXEL_RATIO = 1.5;
 
@@ -45,7 +47,9 @@ async function boot() {
     onRealUpdate: (fn) => realUpdates.push(fn),
   };
   const bottles = createBottles(world);
-  Object.assign(window, { world, post, bottles });
+  const shooting = createShooting(world, bottles);
+  const ui = createHud(shooting, bottles);
+  Object.assign(window, { world, post, bottles, shooting, ui });
 
   const resize = () => {
     renderer.setPixelRatio(Math.min(devicePixelRatio, MAX_PIXEL_RATIO));

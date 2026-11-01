@@ -3,14 +3,15 @@ import { Euler, PerspectiveCamera, Vector3 } from 'three';
 const VIEW = new URLSearchParams(location.search).get('view');
 /** `?view=rail` is a dev close-up of the top rail for visual checks. */
 export const EYE = VIEW === 'rail' ? new Vector3(-0.5, 1.62, 1.9) : new Vector3(-1.35, 1.63, 6.6);
-export const LOOK_AT = VIEW === 'rail' ? new Vector3(0.5, 1.15, 0) : new Vector3(0.45, 1.1, 0);
+export const LOOK_AT = VIEW === 'rail' ? new Vector3(0.5, 1.15, 0) : new Vector3(-0.1, 1.16, 0);
+const FOV = VIEW === 'rail' ? 42 : 32;
 
 /**
  * First-person camera rig. `yaw`/`pitch` are the aim offsets (later driven by the shooting
  * system); `sway` adds a slow handheld drift on top. Additive offsets (`kick`) are for recoil.
  */
 export function createCameraRig(aspect: number) {
-  const camera = new PerspectiveCamera(42, aspect, 0.05, 600);
+  const camera = new PerspectiveCamera(FOV, aspect, 0.05, 600);
   camera.position.copy(EYE);
   camera.lookAt(LOOK_AT);
   const base = new Euler().setFromQuaternion(camera.quaternion, 'YXZ');
@@ -21,7 +22,9 @@ export function createCameraRig(aspect: number) {
     pitch: 0,
     kick: { yaw: 0, pitch: 0, roll: 0 },
     swayAmount: 1,
-    baseFov: 42,
+    baseFov: FOV,
+    /** Rest orientation (YXZ); `yaw`/`pitch` are offsets from it. */
+    base,
     /** Slight handheld roll (rad). */
     roll: 0.007,
     update(t: number) {
