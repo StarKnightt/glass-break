@@ -10,7 +10,8 @@ export async function createDebugHud(renderer: WebGLRenderer) {
   const el = document.createElement('div');
   el.id = 'fps';
   document.body.appendChild(el);
-  let visible = true;
+  let visible = location.search.includes('debug');
+  if (!visible) el.style.display = 'none';
   addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.code === 'Backquote') {
       visible = !visible;

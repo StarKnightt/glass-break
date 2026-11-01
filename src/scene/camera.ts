@@ -14,6 +14,7 @@ export function createCameraRig(aspect: number) {
   const camera = new PerspectiveCamera(FOV, aspect, 0.05, 600);
   camera.position.copy(EYE);
   camera.lookAt(LOOK_AT);
+  const tmp = new Vector3();
   const base = new Euler().setFromQuaternion(camera.quaternion, 'YXZ');
 
   const rig = {
@@ -21,6 +22,8 @@ export function createCameraRig(aspect: number) {
     yaw: 0,
     pitch: 0,
     kick: { yaw: 0, pitch: 0, roll: 0 },
+    /** Camera-local positional recoil (m); +z is backward. */
+    kickPos: new Vector3(),
     swayAmount: 1,
     baseFov: FOV,
     /** Rest orientation (YXZ); `yaw`/`pitch` are offsets from it. */
@@ -40,6 +43,7 @@ export function createCameraRig(aspect: number) {
         'YXZ',
       );
       camera.position.set(EYE.x + Math.sin(t * 0.23) * 0.006 * a, EYE.y + Math.sin(t * 0.41) * 0.004 * a, EYE.z);
+      if (rig.kickPos.lengthSq() > 0) camera.position.add(tmp.copy(rig.kickPos).applyEuler(camera.rotation));
     },
   };
   return rig;
