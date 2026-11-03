@@ -119,3 +119,5 @@ MIT. See [LICENSE](LICENSE).
 
 `og-image.png` is the GitHub social preview: a render of the backyard with the title on the
 left-hand field.
+
+☕ like it? [buy me a coffee](https://buymeacoffee.com/prasenx) or [sponsor on github](https://github.com/sponsors/StarKnightt)
